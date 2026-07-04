@@ -933,6 +933,8 @@ export async function appHandler(req, res) {
     }
 }
 
+export default appHandler;
+
 if (!process.env.VERCEL) {
   http.createServer(appHandler).listen(PORT, () => {
     console.log(`RazaLead OS running at http://localhost:${PORT}`);
