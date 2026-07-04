@@ -604,18 +604,46 @@ async function dueFollowups() {
   return list.filter((item) => item.status === 'scheduled' && new Date(item.dueAt).getTime() <= now);
 }
 
-async function sendWhatsAppText(to, text) {
+function whatsappButtonPayload(to, text, buttons = []) {
+  const cleanButtons = (Array.isArray(buttons) ? buttons : [])
+    .slice(0, 3)
+    .map((button, index) => ({
+      type: 'reply',
+      reply: {
+        id: compact(button.id || button.label || `option_${index + 1}`, 256),
+        title: compact(button.label || button.id || `Option ${index + 1}`, 20),
+      },
+    }))
+    .filter((button) => button.reply.id && button.reply.title);
+
+  if (!cleanButtons.length) {
+    return {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'text',
+      text: { preview_url: true, body: compact(text, 3900) },
+    };
+  }
+
+  return {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: compact(text, 1024) },
+      action: { buttons: cleanButtons },
+    },
+  };
+}
+
+async function sendWhatsAppText(to, text, buttons = []) {
   const meta = await getMetaConfig();
   if (!meta.phoneNumberId || !meta.accessToken) return { sent: false, reason: 'Meta Cloud API env vars missing' };
   const cleanTo = String(to || '').replace(/[^0-9]/g, '');
   if (!cleanTo) return { sent: false, reason: 'Recipient missing' };
   const url = `https://graph.facebook.com/${meta.graphVersion}/${meta.phoneNumberId}/messages`;
-  const payload = {
-    messaging_product: 'whatsapp',
-    to: cleanTo,
-    type: 'text',
-    text: { preview_url: true, body: compact(text, 3900) },
-  };
+  const payload = whatsappButtonPayload(cleanTo, text, buttons);
   const response = await fetch(url, {
     method: 'POST',
     headers: { authorization: `Bearer ${meta.accessToken}`, 'content-type': 'application/json' },
@@ -922,7 +950,7 @@ export async function appHandler(req, res) {
         const inbound = extractWhatsAppInbound(await getBody(req));
         if (inbound.isStatus || !inbound.isMessage) return send(res, 200, { ok: true, type: 'status_or_test' });
         const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: inbound.text, intent: inbound.intent, source: 'WhatsApp' });
-        const delivery = await sendWhatsAppText(inbound.from, turn.reply.text);
+        const delivery = await sendWhatsAppText(inbound.from, turn.reply.text, turn.reply.buttons);
         return send(res, 200, { ok: true, turn, delivery });
       }
       if (url.pathname === '/webhooks/meta' && req.method === 'POST') return send(res, 200, await addLead(await getBody(req), 'Meta'));
