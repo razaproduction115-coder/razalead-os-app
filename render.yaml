@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: razalead-os
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: BUSINESS_NAME
+        value: Raza Productions
+      - key: BUSINESS_WHATSAPP
+        value: "+923343661913"
+      - key: BUSINESS_WHATSAPP_LOCAL
+        value: "03343661913"
+      - key: WHATSAPP_VERIFY_TOKEN
+        value: razalead_os_verify_token
+      - key: META_PHONE_NUMBER_ID
+        value: "1171964786000568"
+      - key: META_WABA_ID
+        value: "2277937109279661"
+      - key: META_ACCESS_TOKEN
+        sync: false

@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RazaLead OS</title>
+  <style>
+    :root {
+      --ink:#13201d;
+      --muted:#66736f;
+      --line:#dce6e1;
+      --paper:#f5f8f6;
+      --panel:#ffffff;
+      --side:#111d1a;
+      --green:#1f9d6b;
+      --gold:#c99736;
+      --blue:#286bd6;
+      --red:#b84254;
+      --soft:#edf4f1;
+      --shadow:0 16px 44px rgba(26,39,36,.12);
+      font-family:Segoe UI,Inter,Arial,sans-serif;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0;
+      background:
+        linear-gradient(135deg,rgba(31,157,107,.08),transparent 34%),
+        linear-gradient(315deg,rgba(201,151,54,.1),transparent 30%),
+        var(--paper);
+      color:var(--ink);
+    }
+    button,input,select,textarea { font:inherit; }
+    button { cursor:pointer; }
+    h1,h2,h3,p { margin:0; }
+    h1 { font-size:34px; line-height:1.08; }
+    h2 { font-size:20px; }
+    h3 { font-size:16px; }
+    code { background:#edf4f1; border-radius:6px; padding:3px 6px; }
+    .shell { display:grid; grid-template-columns:282px minmax(0,1fr); min-height:100vh; }
+    .side { background:var(--side); color:#fff; padding:22px; display:flex; flex-direction:column; gap:22px; }
+    .brand { display:flex; gap:12px; align-items:center; }
+    .mark { width:46px; height:46px; border-radius:8px; display:grid; place-items:center; background:linear-gradient(135deg,var(--green),var(--gold)); font-size:24px; font-weight:950; }
+    .brand b,.brand span { display:block; }
+    .brand span { color:#a9bbb5; font-size:13px; margin-top:2px; }
+    .nav { display:grid; gap:7px; }
+    .nav button { border:0; border-radius:8px; background:transparent; color:#cfe2dc; text-align:left; padding:12px; font-weight:850; }
+    .nav button.on,.nav button:hover { background:rgba(255,255,255,.12); color:#fff; }
+    .note { margin-top:auto; border:1px solid rgba(255,255,255,.16); border-radius:8px; padding:14px; background:rgba(255,255,255,.06); }
+    .note p { color:#a9bbb5; font-size:13px; margin-top:6px; line-height:1.45; }
+    .main { padding:24px; }
+    .top { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:18px; }
+    .eyebrow { margin:0 0 6px; color:#167e55; font-size:12px; font-weight:950; text-transform:uppercase; }
+    .actions { display:flex; gap:9px; flex-wrap:wrap; }
+    .btn { border:0; border-radius:8px; min-height:40px; padding:0 14px; background:var(--green); color:#fff; font-weight:900; }
+    .ghost { background:#fff; color:var(--ink); border:1px solid var(--line); }
+    .dark { background:#17211f; }
+    .view { display:none; }
+    .view.on { display:block; }
+    .muted { color:var(--muted); }
+    .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+    .metric,.panel,.card { background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
+    .metric { padding:18px; }
+    .metric span { color:var(--muted); }
+    .metric b { display:block; margin-top:8px; font-size:30px; }
+    .metric small { display:block; margin-top:6px; color:#167e55; font-weight:850; }
+    .grid { display:grid; grid-template-columns:1.25fr .75fr; gap:14px; margin-top:14px; }
+    .panel { padding:18px; }
+    .head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:14px; }
+    .form { display:grid; gap:10px; }
+    .form input,.form select,.form textarea,.composer input { border:1px solid var(--line); border-radius:8px; padding:11px; background:#fff; min-width:0; }
+    .form textarea { min-height:78px; resize:vertical; }
+    .lead { display:grid; grid-template-columns:1.1fr .75fr 86px 95px 110px; gap:10px; align-items:center; border-top:1px solid #e7efeb; padding:12px 0; }
+    .pill { display:inline-block; width:max-content; border-radius:999px; padding:5px 9px; font-size:12px; font-weight:900; background:#dff7ea; color:#11613e; }
+    .pill.meta { background:#e1ecff; color:#1d54a8; }
+    .pill.web { background:#fff0d8; color:#7a4c11; }
+    .pill.hot { background:#ffe7df; color:#9b2b1d; }
+    .pill.warm { background:#fff0d8; color:#7a4c11; }
+    .scorebar { height:9px; width:100%; border-radius:99px; background:#edf4f1; overflow:hidden; }
+    .scorebar span { display:block; height:100%; background:linear-gradient(90deg,var(--green),var(--gold)); }
+    .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .card { padding:16px; }
+    .card p { margin-top:7px; color:var(--muted); font-size:14px; line-height:1.45; }
+    .phonewrap { display:grid; grid-template-columns:420px minmax(0,1fr); gap:14px; }
+    .phone { height:690px; background:#0f1b18; border-radius:18px; padding:14px; display:flex; flex-direction:column; box-shadow:var(--shadow); }
+    .phonehead { color:#fff; display:flex; justify-content:space-between; padding:6px 6px 12px; gap:8px; }
+    .phonehead span { color:#a9bbb5; font-size:13px; }
+    .chat { background:#e7f0ec; border-radius:14px; padding:14px; flex:1; overflow:auto; display:flex; flex-direction:column; gap:10px; }
+    .bubble { max-width:88%; padding:11px 12px; border-radius:12px; background:#fff; white-space:pre-line; line-height:1.42; }
+    .bubble.user { margin-left:auto; background:#dff7ea; }
+    .quick { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:10px; }
+    .quick button { border:0; border-radius:8px; min-height:38px; background:#fff; color:var(--ink); font-weight:850; }
+    .composer { display:grid; grid-template-columns:1fr auto; gap:8px; margin-top:10px; }
+    .table { display:grid; gap:8px; }
+    .row { display:grid; grid-template-columns:1fr 120px 140px 120px; gap:8px; align-items:center; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fbfdfc; }
+    .setup { display:grid; gap:10px; }
+    .setup p { line-height:1.55; }
+    @media (max-width:1100px) {
+      .shell { display:block; }
+      .metrics,.grid,.cards,.phonewrap { grid-template-columns:1fr; }
+      .lead,.row { grid-template-columns:1fr; }
+      .top { display:block; }
+      .actions { margin-top:12px; }
+      h1 { font-size:28px; }
+      .phone { height:620px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand">
+        <div class="mark">R</div>
+        <div>
+          <b>RazaLead OS</b>
+          <span>Lead reply + follow-up system</span>
+          <span id="businessNumber">Loading...</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="on" data-view="dashboard">Dashboard</button>
+        <button data-view="inbox">Lead Inbox</button>
+        <button data-view="bot">Chatbot</button>
+        <button data-view="followups">Follow-ups</button>
+        <button data-view="team">Team Login</button>
+        <button data-view="analytics">Analytics</button>
+        <button data-view="memory">AI Memory</button>
+        <button data-view="crm">CRM Export</button>
+        <button data-view="knowledge">Knowledge</button>
+        <button data-view="connect">Connect</button>
+      </nav>
+      <div class="note">
+        <b>Simplified final scope</b>
+        <p>No bulk sender. No spam risk. Inbound leads, human-friendly chatbot, team access, analytics, CRM export and scheduled follow-ups.</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="top">
+        <div>
+          <p class="eyebrow">WhatsApp + Meta + website lead automation</p>
+          <h1 id="pageTitle">Dashboard</h1>
+        </div>
+        <div class="actions">
+          <button class="btn ghost" id="refreshBtn">Refresh</button>
+          <button class="btn dark" id="demoBtn">Run demo chat</button>
+          <button class="btn ghost" id="resetBtn">Reset demo</button>
+        </div>
+      </div>
+
+      <section id="dashboard" class="view on">
+        <div class="metrics">
+          <div class="metric"><span>Total leads</span><b id="totalLeads">0</b><small>All sources</small></div>
+          <div class="metric"><span>Hot leads</span><b id="hotLeads">0</b><small>75%+ potential</small></div>
+          <div class="metric"><span>Follow-ups</span><b id="scheduledFollowups">0</b><small>Auto queue</small></div>
+          <div class="metric"><span>Due today</span><b id="dueFollowups">0</b><small>Action needed</small></div>
+        </div>
+
+        <div class="grid">
+          <div class="panel">
+            <div class="head">
+              <div>
+                <h2>Live lead board</h2>
+                <p class="muted">WhatsApp, Meta ads and website leads register here with score and follow-up plan.</p>
+              </div>
+            </div>
+            <div id="recentLeads"></div>
+          </div>
+          <div class="panel">
+            <h2>Quick lead test</h2>
+            <p class="muted" style="margin:6px 0 12px">Use this to test lead registration without WhatsApp.</p>
+            <div class="form">
+              <input id="leadName" placeholder="Client name">
+              <input id="leadPhone" placeholder="Phone">
+              <select id="leadSource"><option>WhatsApp</option><option>Meta</option><option>Website</option></select>
+              <select id="leadService"></select>
+              <input id="leadCity" placeholder="City">
+              <textarea id="leadMessage" placeholder="Requirement / message"></textarea>
+              <button class="btn" id="addLeadBtn">Register lead</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="cards" style="margin-top:14px">
+          <article class="card"><h3>Auto reply</h3><p>Every inbound message receives a clear services reply or relevant answer.</p></article>
+          <article class="card"><h3>Lead scoring</h3><p>System labels leads as Hot, Warm or New based on intent, service, budget and booking words.</p></article>
+          <article class="card"><h3>Follow-up plan</h3><p>Hot leads get 2, 4 and 7 day follow-ups. Warm leads get 4 and 7 day follow-ups.</p></article>
+        </div>
+      </section>
+
+      <section id="inbox" class="view">
+        <div class="panel">
+          <div class="head">
+            <div>
+              <h2>Lead inbox</h2>
+              <p class="muted">Owner view for qualification, potential and source tracking.</p>
+            </div>
+          </div>
+          <div id="allLeads"></div>
+        </div>
+      </section>
+
+      <section id="bot" class="view">
+        <div class="phonewrap">
+          <section class="phone">
+            <div class="phonehead"><b>WhatsApp simulator</b><span id="simNumber"></span></div>
+            <div id="chat" class="chat"></div>
+            <div id="quickButtons" class="quick"></div>
+            <div class="composer">
+              <input id="chatInput" placeholder="Ask anything: ideas, casual chat, services, podcast, pricing">
+              <button class="btn" id="sendBtn">Send</button>
+            </div>
+          </section>
+          <section class="panel">
+            <h2>Chatbot behavior</h2>
+            <p class="muted" style="margin:6px 0 14px">The bot talks naturally, answers random questions, and only turns serious buying intent into a lead.</p>
+            <div class="cards">
+              <button class="btn ghost scenarioBtn" data-text="Tum kaise ho?">Friendly chat</button>
+              <button class="btn ghost scenarioBtn" data-text="Mujhe content ideas chahiye">Idea help</button>
+              <button class="btn ghost scenarioBtn" data-text="Podcast book karna hai Saturday ko">Book podcast</button>
+            </div>
+            <div class="panel" style="box-shadow:none;margin-top:14px;background:#fbfdfc">
+              <h2>Conversation rules</h2>
+              <div class="setup" style="margin-top:10px">
+                <p><b>Casual:</b> normal friendly answer, no lead created.</p>
+                <p><b>Ideas:</b> asks for goal, audience and format.</p>
+                <p><b>Hot:</b> booking, date, budget, quote, urgent, slot.</p>
+                <p><b>Warm:</b> service, package, portfolio, price.</p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="followups" class="view">
+        <div class="grid">
+          <div class="panel">
+            <div class="head">
+              <div>
+                <h2>Follow-up queue</h2>
+                <p class="muted">Scheduled automatically from lead score.</p>
+              </div>
+              <button class="btn" id="runFollowupsBtn">Run due follow-ups</button>
+            </div>
+            <div id="followupList" class="table"></div>
+          </div>
+          <div class="panel">
+            <h2>Rules</h2>
+            <div class="setup" style="margin-top:10px">
+              <p><b>Hot lead:</b> day 2, day 4, day 7.</p>
+              <p><b>Warm lead:</b> day 4, day 7.</p>
+              <p><b>New lead:</b> day 7 light reminder.</p>
+              <p><b>Sending:</b> real WhatsApp delivery works after Meta Cloud API token is active.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="team" class="view">
+        <div class="grid">
+          <div class="panel">
+            <h2>Team login</h2>
+            <p class="muted" style="margin:6px 0 12px">Local demo access for owner and sales team.</p>
+            <div class="form">
+              <input id="loginEmail" placeholder="Email" value="owner@razaproductions.com">
+              <input id="loginPin" placeholder="PIN / password" type="password" value="raza2026">
+              <button class="btn" id="loginBtn">Login</button>
+              <p id="loginStatus" class="muted">Demo owner PIN: raza2026. Sales PIN: sales2026.</p>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Team roles</h2>
+            <div id="teamList" class="table" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="analytics" class="view">
+        <div class="metrics">
+          <div class="metric"><span>Avg score</span><b id="avgScore">0%</b><small>Lead quality</small></div>
+          <div class="metric"><span>Conversations</span><b id="conversationCount">0</b><small>Bot memory</small></div>
+          <div class="metric"><span>Sent follow-ups</span><b id="sentFollowups">0</b><small>Delivered/attempted</small></div>
+          <div class="metric"><span>Needs attention</span><b id="attentionFollowups">0</b><small>Token/retry</small></div>
+        </div>
+        <div class="grid">
+          <div class="panel"><h2>Lead sources</h2><div id="sourceAnalytics" class="table" style="margin-top:12px"></div></div>
+          <div class="panel"><h2>Lead labels</h2><div id="labelAnalytics" class="table" style="margin-top:12px"></div></div>
+        </div>
+        <div class="panel" style="margin-top:14px"><h2>Services demand</h2><div id="serviceAnalytics" class="table" style="margin-top:12px"></div></div>
+      </section>
+
+      <section id="memory" class="view">
+        <div class="panel">
+          <div class="head">
+            <div>
+              <h2>AI memory / context</h2>
+              <p class="muted">Recent conversation context stored per phone number for better continuity.</p>
+            </div>
+            <button class="btn ghost" id="memoryRefreshBtn">Refresh memory</button>
+          </div>
+          <div id="memoryList" class="table"></div>
+        </div>
+      </section>
+
+      <section id="crm" class="view">
+        <div class="grid">
+          <div class="panel">
+            <h2>CRM export</h2>
+            <p class="muted" style="margin:6px 0 14px">Download leads for Excel, Google Sheets or CRM import.</p>
+            <div class="actions">
+              <a class="btn" href="/api/crm/export.csv" download="razalead-leads.csv" style="display:inline-grid;place-items:center;text-decoration:none">Download CSV</a>
+              <a class="btn ghost" href="/api/crm/export.json" download="razalead-export.json" style="display:inline-grid;place-items:center;text-decoration:none">Download JSON</a>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Export preview</h2>
+            <div id="crmPreview" class="table" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="knowledge" class="view">
+        <div class="grid">
+          <div class="panel">
+            <h2>Editable bot knowledge</h2>
+            <p class="muted" style="margin:6px 0 14px">Change services, FAQ, pricing and podcast slots without touching code.</p>
+            <div class="form">
+              <textarea id="kbGreeting" placeholder="Greeting message"></textarea>
+              <textarea id="kbServices" placeholder="One service per line: Service name | Reply"></textarea>
+              <textarea id="kbPricing" placeholder="One pricing/package row per line"></textarea>
+              <textarea id="kbFaqs" placeholder="keywords,comma,separated => answer"></textarea>
+              <button class="btn" id="saveKnowledgeBtn">Save bot knowledge</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Services loaded in bot</h2>
+            <div id="serviceCards" class="cards"></div>
+          </div>
+          <div class="panel">
+            <h2>Podcast booking flow</h2>
+            <textarea id="kbSlots" class="form" style="width:100%;min-height:120px;margin-top:10px" placeholder="One slot row per line"></textarea>
+            <div id="slotList" class="setup" style="margin-top:10px"></div>
+            <div class="setup" style="margin-top:14px">
+              <p><b>Required details:</b> name, preferred day/time, episode type, guest count, budget.</p>
+              <p><b>Bot output:</b> slot guidance plus lead registration when intent is clear.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="connect" class="view">
+        <div class="grid">
+          <div class="panel">
+            <h2>WhatsApp Cloud API</h2>
+            <div class="setup" style="margin-top:10px">
+              <p><b>Webhook path:</b> <code>/webhooks/whatsapp</code></p>
+              <p><b>Verify token:</b> <code>razalead_os_verify_token</code></p>
+              <p><b>Behavior:</b> inbound message -> bot reply -> lead registration when intent is serious.</p>
+              <p><b>Current limitation:</b> Meta needs a public HTTPS deployment URL, not localhost.</p>
+              <p><b>Status:</b> <span id="metaStatusText">Checking...</span></p>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Connect Meta account</h2>
+            <p class="muted" style="margin:6px 0 12px">Paste fresh Meta values here. They stay local in this app's data folder.</p>
+            <div class="form">
+              <input id="metaPhoneNumberId" placeholder="Phone Number ID" value="1171964786000568">
+              <input id="metaWabaId" placeholder="WhatsApp Business Account ID" value="2277937109279661">
+              <input id="metaGraphVersion" placeholder="Graph API Version" value="v23.0">
+              <textarea id="metaAccessToken" placeholder="Fresh Access Token"></textarea>
+              <button class="btn" id="saveMetaBtn">Save connection & test</button>
+            </div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="panel">
+            <h2>Meta / website lead endpoints</h2>
+            <div class="setup" style="margin-top:10px">
+              <p><b>Meta leads:</b> <code>POST /webhooks/meta</code></p>
+              <p><b>Website form:</b> <code>POST /api/website-lead</code></p>
+              <p><b>Health test:</b> <code>GET /api/stats</code></p>
+              <button class="btn" id="metaTestBtn">Run Meta API test</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Test result</h2>
+            <div id="metaResult" class="cards" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    let config = null;
+    let replyCount = 0;
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({
+      '&':'&amp;',
+      '<':'&lt;',
+      '>':'&gt;',
+      '"':'&quot;',
+      "'":'&#039;'
+    }[char]));
+    const api = (url, options) => fetch(url, options).then((res) => res.json());
+    const chatPlaceholder = 'Ask anything: ideas, casual chat, services, podcast, pricing';
+
+    document.querySelectorAll('.nav button').forEach((button) => {
+      button.addEventListener('click', () => show(button.dataset.view, button.textContent));
+    });
+
+    function show(id, title) {
+      document.querySelectorAll('.nav button,.view').forEach((item) => item.classList.remove('on'));
+      document.querySelector(`.nav button[data-view="${id}"]`).classList.add('on');
+      $(id).classList.add('on');
+      $('pageTitle').textContent = title;
+      if (id === 'followups') loadFollowups();
+      if (id === 'team') loadTeam();
+      if (id === 'analytics') loadAnalytics();
+      if (id === 'memory') loadMemory();
+      if (id === 'crm') loadCrmPreview();
+      if (id === 'knowledge') loadKnowledge();
+    }
+
+    function scoreBar(score) {
+      return `<div class="scorebar"><span style="width:${Math.max(5, Number(score || 0))}%"></span></div>`;
+    }
+
+    function sourceClass(source) {
+      if (source === 'Meta') return 'meta';
+      if (source === 'Website') return 'web';
+      return '';
+    }
+
+    function leadRow(lead) {
+      const labelClass = lead.label === 'Hot' ? 'hot' : lead.label === 'Warm' ? 'warm' : '';
+      return `
+        <div class="lead">
+          <div><b>${esc(lead.name)}</b><br><span class="muted">${esc(lead.phone)}</span></div>
+          <div><span class="pill ${sourceClass(lead.source)}">${esc(lead.source)}</span><br><span class="muted">${esc(lead.service)}</span></div>
+          <span class="pill ${labelClass}">${esc(lead.label || 'New')}</span>
+          <div><b>${esc(lead.score || 0)}%</b>${scoreBar(lead.score)}</div>
+          <span class="muted">${lead.nextFollowupAt ? new Date(lead.nextFollowupAt).toLocaleDateString() : 'Not set'}</span>
+        </div>
+      `;
+    }
+
+    async function refresh() {
+      const [stats, leads] = await Promise.all([api('/api/stats'), api('/api/leads')]);
+      $('totalLeads').textContent = stats.totalLeads;
+      $('hotLeads').textContent = stats.hot;
+      $('scheduledFollowups').textContent = stats.scheduledFollowups;
+      $('dueFollowups').textContent = stats.dueFollowups;
+      $('recentLeads').innerHTML = leads.slice(0, 5).map(leadRow).join('') || '<p class="muted">No leads yet.</p>';
+      $('allLeads').innerHTML = leads.map(leadRow).join('') || '<p class="muted">No leads yet.</p>';
+      loadFollowups();
+    }
+
+    function fillServices() {
+      $('leadService').innerHTML = config.knowledge.services.map((service) => `<option>${esc(service.name)}</option>`).join('');
+      $('serviceCards').innerHTML = config.knowledge.services.map((service) => `
+        <article class="card"><h3>${esc(service.name)}</h3><p>${esc(service.reply)}</p></article>
+      `).join('');
+      $('slotList').innerHTML = config.knowledge.podcastSlots.map((slot) => `<p>${esc(slot)}</p>`).join('');
+    }
+
+    function fillKnowledgeEditor(kb) {
+      $('kbGreeting').value = kb.greeting || '';
+      $('kbServices').value = (kb.services || []).map((service) => `${service.name} | ${service.reply}`).join('\n');
+      $('kbSlots').value = (kb.podcastSlots || []).join('\n');
+      $('kbPricing').value = (kb.pricing || []).join('\n');
+      $('kbFaqs').value = (kb.faqs || []).map((faq) => `${(faq.match || []).join(', ')} => ${faq.answer}`).join('\n');
+    }
+
+    async function loadKnowledge() {
+      const kb = await api('/api/knowledge');
+      config.knowledge = kb;
+      fillServices();
+      fillKnowledgeEditor(kb);
+    }
+
+    async function saveKnowledge() {
+      $('saveKnowledgeBtn').textContent = 'Saving...';
+      const kb = await api('/api/knowledge', {
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({
+          greeting: $('kbGreeting').value,
+          services: $('kbServices').value,
+          podcastSlots: $('kbSlots').value,
+          pricing: $('kbPricing').value,
+          faqs: $('kbFaqs').value,
+        }),
+      });
+      config.knowledge = kb;
+      fillServices();
+      fillKnowledgeEditor(kb);
+      $('saveKnowledgeBtn').textContent = 'Save bot knowledge';
+      alert('Bot knowledge updated.');
+    }
+
+    async function loadTeam() {
+      const result = await api('/api/team');
+      $('teamList').innerHTML = (result.users || []).map((user) => `
+        <div class="row">
+          <div><b>${esc(user.name)}</b><br><span class="muted">${esc(user.email)}</span></div>
+          <span class="pill">${esc(user.role)}</span>
+          <span class="muted">${new Date(user.createdAt).toLocaleDateString()}</span>
+          <span class="muted">${esc(user.id)}</span>
+        </div>
+      `).join('');
+    }
+
+    async function loginTeam() {
+      const result = await api('/api/auth/login', {
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({ email: $('loginEmail').value, password: $('loginPin').value }),
+      });
+      $('loginStatus').textContent = result.ok ? `Logged in as ${result.user.name} (${result.user.role})` : result.error;
+    }
+
+    function analyticsRows(data) {
+      return Object.entries(data || {}).map(([label, value]) => `
+        <div class="row">
+          <div><b>${esc(label)}</b></div>
+          <span class="pill">${esc(value)}</span>
+          <span class="muted">count</span>
+          <span class="muted">live</span>
+        </div>
+      `).join('') || '<p class="muted">No data yet.</p>';
+    }
+
+    async function loadAnalytics() {
+      const result = await api('/api/analytics');
+      $('avgScore').textContent = `${result.averageScore || 0}%`;
+      $('conversationCount').textContent = result.conversations || 0;
+      $('sentFollowups').textContent = result.followups?.sent || 0;
+      $('attentionFollowups').textContent = result.followups?.needsAttention || 0;
+      $('sourceAnalytics').innerHTML = analyticsRows(result.bySource);
+      $('labelAnalytics').innerHTML = analyticsRows(result.byLabel);
+      $('serviceAnalytics').innerHTML = analyticsRows(result.byService);
+    }
+
+    async function loadMemory() {
+      const result = await api('/api/memory');
+      $('memoryList').innerHTML = (result.sessions || []).map((session) => `
+        <div class="row">
+          <div><b>${esc(session.phone)}</b><br><span class="muted">${esc(session.lastUserMessage).slice(0, 90)}</span></div>
+          <span class="pill">${esc(session.messages)} msgs</span>
+          <span class="muted">${session.updatedAt ? new Date(session.updatedAt).toLocaleString() : 'No time'}</span>
+          <span class="muted">${esc(session.lastBotMessage).slice(0, 60)}</span>
+        </div>
+      `).join('') || '<p class="muted">No memory yet. Use chatbot demo first.</p>';
+    }
+
+    async function loadCrmPreview() {
+      const leads = await api('/api/leads');
+      $('crmPreview').innerHTML = leads.slice(0, 6).map((lead) => `
+        <div class="row">
+          <div><b>${esc(lead.name)}</b><br><span class="muted">${esc(lead.phone)}</span></div>
+          <span class="pill ${lead.label === 'Hot' ? 'hot' : lead.label === 'Warm' ? 'warm' : ''}">${esc(lead.label)}</span>
+          <span class="muted">${esc(lead.source)}</span>
+          <span class="muted">${esc(lead.service)}</span>
+        </div>
+      `).join('') || '<p class="muted">No leads to export yet.</p>';
+    }
+
+    async function addLead() {
+      await api('/api/leads', {
+        method: 'POST',
+        headers: { 'content-type':'application/json' },
+        body: JSON.stringify({
+          name: $('leadName').value,
+          phone: $('leadPhone').value,
+          source: $('leadSource').value,
+          service: $('leadService').value,
+          city: $('leadCity').value,
+          message: $('leadMessage').value,
+        }),
+      });
+      ['leadName','leadPhone','leadCity','leadMessage'].forEach((id) => $(id).value = '');
+      refresh();
+    }
+
+    function bubble(role, text) {
+      const div = document.createElement('div');
+      div.className = `bubble ${role === 'user' ? 'user' : 'bot'}`;
+      div.textContent = text;
+      $('chat').appendChild(div);
+      $('chat').scrollTop = $('chat').scrollHeight;
+    }
+
+    function renderButtons(buttons) {
+      $('quickButtons').innerHTML = (buttons || []).map((button) => `<button data-id="${esc(button.id)}">${esc(button.label)}</button>`).join('');
+      $('quickButtons').querySelectorAll('button').forEach((button) => {
+        button.addEventListener('click', () => sendChat(button.textContent, button.dataset.id));
+      });
+    }
+
+    async function sendChat(text, intent) {
+      const message = String(text || $('chatInput').value || '').trim();
+      if (!message) return;
+      $('chatInput').value = '';
+      bubble('user', message);
+      const response = await api('/api/bot/message', {
+        method: 'POST',
+        headers: { 'content-type':'application/json' },
+        body: JSON.stringify({ phone:'demo-user', text:message, intent }),
+      });
+      bubble('bot', response.reply.text);
+      renderButtons(response.reply.buttons);
+      replyCount += 1;
+      await refresh();
+    }
+
+    async function loadFollowups() {
+      const result = await api('/api/followups');
+      const rows = (result.items || []).map((item) => `
+        <div class="row">
+          <div><b>${esc(item.name || item.phone)}</b><br><span class="muted">${esc(item.service)}</span></div>
+          <span class="pill ${item.label === 'Hot' ? 'hot' : item.label === 'Warm' ? 'warm' : ''}">${esc(item.label)}</span>
+          <span>${new Date(item.dueAt).toLocaleString()}</span>
+          <span class="muted">${esc(item.status)}</span>
+        </div>
+      `).join('');
+      $('followupList').innerHTML = rows || '<p class="muted">No follow-ups scheduled yet.</p>';
+    }
+
+    async function runFollowups() {
+      $('runFollowupsBtn').textContent = 'Running...';
+      const result = await api('/api/followups/run', { method:'POST' });
+      $('runFollowupsBtn').textContent = 'Run due follow-ups';
+      await refresh();
+      alert(`${(result.results || []).length} due follow-up(s) processed.`);
+    }
+
+    async function metaTest() {
+      $('metaResult').innerHTML = '<p class="muted">Checking...</p>';
+      const result = await api('/api/meta/self-test', { method:'POST' });
+      $('metaStatusText').textContent = result.connected ? 'Configured locally' : 'Missing token or phone number';
+      $('metaResult').innerHTML = (result.checks || []).map((check) => `
+        <article class="card">
+          <h3>${esc(check.name)}</h3>
+          <p><b>${check.result && check.result.ok ? 'OK' : 'Needs attention'}</b></p>
+          <p>${esc(JSON.stringify(check.result).slice(0, 180))}</p>
+        </article>
+      `).join('') || `<article class="card"><h3>Result</h3><p>${esc(JSON.stringify(result).slice(0, 250))}</p></article>`;
+    }
+
+    async function loadMetaSettings() {
+      const settings = await api('/api/meta/settings');
+      $('metaStatusText').textContent = `Phone: ${settings.phoneNumberId}, WABA: ${settings.wabaId}, Token: ${settings.accessToken}`;
+    }
+
+    async function saveMetaConnection() {
+      $('saveMetaBtn').textContent = 'Saving...';
+      await api('/api/meta/settings', {
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({
+          phoneNumberId: $('metaPhoneNumberId').value,
+          wabaId: $('metaWabaId').value,
+          graphVersion: $('metaGraphVersion').value,
+          accessToken: $('metaAccessToken').value,
+        }),
+      });
+      $('saveMetaBtn').textContent = 'Save connection & test';
+      $('metaAccessToken').value = '';
+      await loadMetaSettings();
+      await metaTest();
+    }
+
+    async function resetDemo() {
+      await api('/api/reset', { method:'POST' });
+      $('chat').innerHTML = '';
+      replyCount = 0;
+      await refresh();
+      await sendChat('Start', 'start');
+    }
+
+    async function init() {
+      config = await api('/api/config');
+      $('businessNumber').textContent = config.business.whatsapp;
+      $('simNumber').textContent = config.business.whatsapp;
+      fillServices();
+      fillKnowledgeEditor(config.knowledge);
+      await loadMetaSettings();
+      await refresh();
+      await sendChat('Start', 'start');
+    }
+
+    $('addLeadBtn').addEventListener('click', addLead);
+    $('refreshBtn').addEventListener('click', refresh);
+    $('resetBtn').addEventListener('click', resetDemo);
+    $('sendBtn').addEventListener('click', () => sendChat());
+    $('runFollowupsBtn').addEventListener('click', runFollowups);
+    $('metaTestBtn').addEventListener('click', metaTest);
+    $('saveMetaBtn').addEventListener('click', saveMetaConnection);
+    $('loginBtn').addEventListener('click', loginTeam);
+    $('memoryRefreshBtn').addEventListener('click', loadMemory);
+    $('saveKnowledgeBtn').addEventListener('click', saveKnowledge);
+    $('demoBtn').addEventListener('click', async () => { show('bot', 'Chatbot'); await sendChat('Podcast book karna hai Saturday 4 PM ko. Price bhi bata dein.'); });
+    $('chatInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') sendChat(); });
+    document.querySelectorAll('.scenarioBtn').forEach((button) => button.addEventListener('click', () => sendChat(button.dataset.text)));
+
+    init();
+  </script>
+</body>
+</html>
