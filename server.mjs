@@ -646,7 +646,7 @@ async function sendWhatsAppText(to, text, buttons = []) {
   const payload = whatsappButtonPayload(cleanTo, text, buttons);
   const response = await fetch(url, {
     method: 'POST',
-    headers: { authorization: `Bearer ${meta.accessToken}`, 'content-type': 'application/json' },
+    headers: { Authorization: `Bearer ${meta.accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const json = await response.json().catch(() => ({}));
@@ -757,7 +757,7 @@ async function graphGet(pathname) {
   const meta = await getMetaConfig();
   if (!meta.accessToken) return { ok: false, reason: 'META_ACCESS_TOKEN missing' };
   const url = `https://graph.facebook.com/${meta.graphVersion}/${pathname.replace(/^\//, '')}`;
-  const response = await fetch(url, { headers: { authorization: `Bearer ${meta.accessToken}` } });
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${meta.accessToken}` } });
   const data = await response.json().catch(() => ({}));
   return { ok: response.ok, status: response.status, data };
 }
