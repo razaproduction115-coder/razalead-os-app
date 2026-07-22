@@ -23,6 +23,8 @@ const EMAIL_SETTINGS = path.join(DATA_DIR, 'email-settings.json');
 const EMAIL_HISTORY = path.join(DATA_DIR, 'email-history.json');
 const AUTOMATION_SETTINGS = path.join(DATA_DIR, 'automation-settings.json');
 const COMPETITORS = path.join(DATA_DIR, 'competitors.json');
+const PROJECTS = path.join(DATA_DIR, 'projects.json');
+const AUTOMATION_BLUEPRINTS = path.join(DATA_DIR, 'automation-blueprints.json');
 const PORT = Number(process.env.PORT || 4317);
 const DATABASE_URL = process.env.RAZA_NEXT_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 let databasePromise = null;
@@ -2208,10 +2210,122 @@ function invoicePdf(job) {
   ]);
 }
 
-function portalHtml(lead) {
-  const progress = Math.max(0, Math.min(100, Number(lead.progress || 0)));
+function defaultProject(lead) {
+  const now = new Date().toISOString();
+  return {
+    id: lead.id,
+    leadId: lead.id,
+    title: lead.service || 'Creative production project',
+    status: lead.status || 'Planning',
+    progress: Number(lead.progress || 0),
+    summary: lead.portalNote || lead.message || '',
+    nextDelivery: lead.nextDelivery || lead.preferredDate || '',
+    milestones: [
+      { id: randomUUID(), title: 'Requirement confirmed', status: 'pending', dueDate: '' },
+      { id: randomUUID(), title: 'Production in progress', status: 'pending', dueDate: '' },
+      { id: randomUUID(), title: 'Client review', status: 'pending', dueDate: '' },
+      { id: randomUUID(), title: 'Final delivery', status: 'pending', dueDate: '' },
+    ],
+    files: [],
+    submissions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function getProject(leadId, create = true) {
+  const leads = await readJson(LEADS, seedLeads);
+  const lead = leads.find((item) => item.id === leadId);
+  if (!lead) return null;
+  const projects = await readJson(PROJECTS, []);
+  let project = projects.find((item) => item.leadId === leadId);
+  if (!project && create) {
+    project = defaultProject(lead);
+    projects.unshift(project);
+    await writeJson(PROJECTS, projects);
+    await audit('project.created', { leadId, projectId: project.id });
+  }
+  return project ? { ...project, client: { name: lead.name, phone: lead.phone, email: lead.email, service: lead.service } } : null;
+}
+
+async function saveProject(leadId, input) {
+  const leads = await readJson(LEADS, seedLeads);
+  const lead = leads.find((item) => item.id === leadId);
+  if (!lead) return null;
+  const projects = await readJson(PROJECTS, []);
+  let index = projects.findIndex((item) => item.leadId === leadId);
+  const current = index >= 0 ? projects[index] : defaultProject(lead);
+  const cleanItems = (items, kind) => (Array.isArray(items) ? items : []).slice(0, 100).map((item) => ({
+    id: cleanText(item.id) || randomUUID(),
+    title: compact(item.title || item.name || 'Untitled', 160),
+    ...(kind === 'milestone' ? { status: ['pending','in_progress','completed'].includes(item.status) ? item.status : 'pending', dueDate: compact(item.dueDate, 40) } : { url: compact(item.url, 1200), type: compact(item.type || 'link', 40), visibility: item.visibility === 'team' ? 'team' : 'client' }),
+  }));
+  const next = {
+    ...current,
+    title: compact(input.title ?? current.title, 180),
+    status: compact(input.status ?? current.status, 80),
+    progress: Math.max(0, Math.min(100, Number(input.progress ?? current.progress ?? 0))),
+    summary: compact(input.summary ?? current.summary, 3000),
+    nextDelivery: compact(input.nextDelivery ?? current.nextDelivery, 200),
+    milestones: input.milestones ? cleanItems(input.milestones, 'milestone') : current.milestones,
+    files: input.files ? cleanItems(input.files, 'file') : current.files,
+    submissions: current.submissions || [],
+    updatedAt: new Date().toISOString(),
+  };
+  if (index >= 0) projects[index] = next; else projects.unshift(next);
+  await writeJson(PROJECTS, projects);
+  const leadIndex = leads.findIndex((item) => item.id === leadId);
+  leads[leadIndex].progress = next.progress;
+  leads[leadIndex].nextDelivery = next.nextDelivery;
+  leads[leadIndex].portalNote = next.summary;
+  leads[leadIndex].updatedAt = next.updatedAt;
+  await writeJson(LEADS, leads);
+  await audit('project.updated', { actor: input.actor || 'owner', leadId, projectId: next.id });
+  return { ...next, client: { name: lead.name, phone: lead.phone, email: lead.email, service: lead.service } };
+}
+
+async function addProjectSubmission(leadId, input) {
+  const project = await getProject(leadId);
+  if (!project) return null;
+  const submission = { id: randomUUID(), name: compact(input.name || 'Client', 120), message: compact(input.message, 3000), url: compact(input.url, 1200), createdAt: new Date().toISOString(), status: 'new' };
+  const projects = await readJson(PROJECTS, []);
+  const index = projects.findIndex((item) => item.leadId === leadId);
+  projects[index].submissions = [submission, ...(projects[index].submissions || [])].slice(0, 200);
+  projects[index].updatedAt = submission.createdAt;
+  await writeJson(PROJECTS, projects);
+  await audit('project.client_submission', { leadId, projectId: project.id });
+  return submission;
+}
+
+function seedAutomationBlueprints() {
+  const triggers = {
+    proposal: 'Lead qualified', 'content-calendar': 'Manual or monthly', 'review-collector': 'Project completed + 3 days', upsell: 'Client inactive 60 days', 'competitor-alert': 'Daily schedule', 'meeting-scheduler': 'Lead requests meeting', 'contract-invoice': 'Deal marked Won', winback: 'Client inactive 90 days', 'faq-bot': 'Incoming WhatsApp question', 'client-portal': 'Deal marked Won', 'auto-wishes': 'Birthday or configured occasion', 'voice-proposal': 'Manual voice note', 'no-show': 'Meeting missed + 5 minutes', 'task-assigner': 'Deal marked Won', 'ghost-recover': 'Proposal unanswered 48 hours', referral: '5-star review received', 'viral-ideas': 'Manual request', 'smart-portfolio': 'Lead asks for portfolio', 'ceo-report': 'Daily 9:00 AM', 'lost-lead': 'Lead lost + 3 days'
+  };
+  return SAAS_FEATURES.map((feature) => ({ id: feature.id, name: feature.name, enabled: true, mode: ['proposal','review-collector','upsell','meeting-scheduler','winback','auto-wishes','no-show','ghost-recover','referral','lost-lead'].includes(feature.id) ? 'approval' : 'automatic', trigger: triggers[feature.id] || 'Manual', instructions: feature.description, updatedAt: null }));
+}
+
+async function automationBlueprints(input) {
+  const current = await readJson(AUTOMATION_BLUEPRINTS, seedAutomationBlueprints());
+  if (!input) return current;
+  const incoming = Array.isArray(input.items) ? input.items : [];
+  const byId = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) {
+    if (!byId.has(item.id)) continue;
+    const old = byId.get(item.id);
+    byId.set(item.id, { ...old, enabled: item.enabled !== false, mode: ['automatic','approval','manual'].includes(item.mode) ? item.mode : old.mode, trigger: compact(item.trigger || old.trigger, 240), instructions: compact(item.instructions || old.instructions, 3000), updatedAt: new Date().toISOString() });
+  }
+  const next = [...byId.values()];
+  await writeJson(AUTOMATION_BLUEPRINTS, next);
+  await audit('automation.blueprints.updated', { actor: input.actor || 'owner' });
+  return next;
+}
+
+function portalHtml(lead, project) {
+  const progress = Math.max(0, Math.min(100, Number(project.progress || lead.progress || 0)));
   const safe = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raza Productions Client Portal</title><style>body{margin:0;background:#0b0b0a;color:#f4efe5;font:16px Arial,sans-serif}.wrap{max-width:720px;margin:0 auto;padding:28px 18px}.logo{width:180px;max-width:48vw;border-radius:6px;background:#f3eadb;padding:6px}.card{margin-top:20px;border:1px solid #3a342d;border-radius:8px;background:#181715;padding:22px}.muted{color:#aaa297}.bar{height:12px;border-radius:3px;background:#2b2823;overflow:hidden}.bar span{display:block;height:100%;width:${progress}%;background:#ff3210}.pill{display:inline-block;margin-top:10px;border-radius:4px;background:#ff321022;color:#ff735c;padding:7px 11px;font-size:12px;font-weight:700}</style></head><body><main class="wrap"><img class="logo" src="/rp-brand-logo.jpg" alt="Raza Productions"><h1>Client Portal</h1><p class="muted">Your project progress, delivery status and next steps.</p><section class="card"><h2>${safe(lead.name || 'Client')}</h2><p class="muted">${safe(lead.service || 'Production project')}</p><span class="pill">${safe(lead.status || 'In progress')}</span><h3>Project progress: ${progress}%</h3><div class="bar"><span></span></div><p class="muted">${progress >= 100 ? 'Project completed. Thank you for choosing Raza Productions.' : 'Our team will keep this portal updated as work moves forward.'}</p></section><section class="card"><h3>Next delivery</h3><p>${safe(lead.nextDelivery || lead.preferredDate || 'Team will confirm the next delivery date.')}</p><h3>Notes</h3><p class="muted">${safe(lead.portalNote || 'For questions, contact the Raza Productions team on WhatsApp.')}</p></section></main></body></html>`;
+  const milestones = (project.milestones || []).map((item) => `<li class="milestone ${safe(item.status)}"><span></span><div><b>${safe(item.title)}</b><small>${safe(item.status.replace('_',' '))}${item.dueDate ? ` · ${safe(item.dueDate)}` : ''}</small></div></li>`).join('');
+  const files = (project.files || []).filter((item) => item.visibility !== 'team').map((item) => `<a class="file" href="${safe(item.url)}" target="_blank" rel="noreferrer"><b>${safe(item.title)}</b><small>${safe(item.type || 'file')}</small></a>`).join('') || '<p class="muted">No client files shared yet.</p>';
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raza Productions Client Portal</title><style>*{box-sizing:border-box}body{margin:0;background:#0d0d0c;color:#f7f0e5;font:15px Arial,sans-serif}.wrap{max-width:980px;margin:auto;padding:24px 16px 48px}.head{display:flex;align-items:center;justify-content:space-between;gap:16px}.logo{width:170px;max-width:45vw;background:#eee6d8;padding:6px}.pill{padding:8px 11px;background:#ff32101c;color:#ff5a3b;border:1px solid #ff321044;font-weight:700}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.card{margin-top:18px;border:1px solid #38332d;background:#191817;padding:22px}.muted,small{color:#aaa197}.bar{height:14px;background:#302d28;overflow:hidden}.bar span{display:block;height:100%;width:${progress}%;background:#ff3210}.milestones{list-style:none;padding:0}.milestone{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid #302d28}.milestone>span{width:12px;height:12px;margin-top:3px;border-radius:50%;background:#514b43}.milestone.completed>span{background:#22c55e}.milestone.in_progress>span{background:#ff3210}.milestone small,.file small{display:block;margin-top:5px;text-transform:capitalize}.file{display:block;color:#f7f0e5;text-decoration:none;border:1px solid #39342e;padding:13px;margin-top:9px}.field{width:100%;padding:13px;margin-top:10px;background:#0e0e0d;color:#fff;border:1px solid #484139}.btn{width:100%;padding:13px;margin-top:10px;background:#ff3210;color:#fff;border:0;font-weight:800}@media(max-width:720px){.grid{grid-template-columns:1fr}.head{align-items:flex-start;flex-direction:column}}</style></head><body><main class="wrap"><header class="head"><img class="logo" src="/rp-brand-logo.jpg" alt="Raza Productions"><span class="pill">${safe(project.status || lead.status || 'In progress')}</span></header><h1>${safe(project.title || lead.service || 'Client Project')}</h1><p class="muted">Welcome ${safe(lead.name || 'Client')}. Track progress, open deliveries and send feedback here.</p><section class="card"><h3>Project progress: ${progress}%</h3><div class="bar"><span></span></div><p>${safe(project.summary || 'Our team will keep this portal updated as work moves forward.')}</p><b>Next delivery</b><p class="muted">${safe(project.nextDelivery || 'Team will confirm the next delivery date.')}</p></section><div class="grid"><section class="card"><h2>Project milestones</h2><ul class="milestones">${milestones}</ul></section><section class="card"><h2>Files & deliveries</h2>${files}</section></div><section class="card"><h2>Send feedback or files</h2><input id="name" class="field" placeholder="Your name"><textarea id="message" class="field" rows="4" placeholder="Feedback, changes or approval note"></textarea><input id="url" class="field" placeholder="Google Drive / Dropbox file link (optional)"><button class="btn" onclick="submitFeedback()">Submit to Raza Productions</button><p id="result" class="muted"></p></section></main><script>async function submitFeedback(){const result=document.getElementById('result'),nameField=document.getElementById('name'),messageField=document.getElementById('message'),urlField=document.getElementById('url');if(!messageField.value.trim()&&!urlField.value.trim()){result.textContent='Please add feedback or a file link.';return;}result.textContent='Submitting...';const r=await fetch('/api/projects/${encodeURIComponent(lead.id)}/submissions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:nameField.value,message:messageField.value,url:urlField.value})});result.textContent=r.ok?'Thank you. Your submission is saved and the team has been notified.':'Could not submit. Please try again.';if(r.ok){messageField.value='';urlField.value='';}}</script></body></html>`;
 }
 
 async function widgetTurn(input) {
@@ -2338,6 +2452,9 @@ function daysSince(value) {
 }
 
 async function queueAutomationJob(jobs, featureId, lead, reason, dueAt = new Date().toISOString()) {
+  const blueprints = await automationBlueprints();
+  const blueprint = blueprints.find((item) => item.id === featureId);
+  if (blueprint && (!blueprint.enabled || blueprint.mode === 'manual')) return null;
   const key = `${featureId}:${lead.id}:${String(dueAt).slice(0, 10)}`;
   if (jobs.some((job) => job.automationKey === key)) return null;
   const feature = saasFeatures.find((item) => item.id === featureId);
@@ -2345,9 +2462,10 @@ async function queueAutomationJob(jobs, featureId, lead, reason, dueAt = new Dat
   const internalOnly = ['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'voice-proposal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'smart-portfolio', 'ceo-report'].includes(featureId);
   const job = {
     id: randomUUID(), automationKey: key, featureId, featureName: feature?.name || featureId,
-    status: 'approval_required', channel: internalOnly ? 'internal' : 'whatsapp', risk: internalOnly ? 'low' : 'customer_message',
+    status: blueprint?.mode === 'automatic' ? 'ready_auto' : 'approval_required', channel: internalOnly ? 'internal' : 'whatsapp', risk: internalOnly ? 'low' : 'customer_message',
+    blueprintMode: blueprint?.mode || 'approval',
     input: { leadId: lead.id, name: lead.name, phone: lead.phone, service: lead.service, email: lead.email || '' },
-    output: { reason, dueAt, message, deliveryMode: 'owner_approval', preview: automationPreview(featureId, lead) },
+    output: { reason, dueAt, message, deliveryMode: blueprint?.mode === 'automatic' ? 'automatic' : 'owner_approval', instructions: blueprint?.instructions || '', preview: automationPreview(featureId, lead) },
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: [{ action: 'recommended', at: new Date().toISOString(), actor: 'Raza AI' }],
   };
   if (featureId === 'client-portal') job.output.portalUrl = `/portal/${lead.id}`;
@@ -2544,7 +2662,7 @@ async function runAutomationScanner() {
   }
   const safeAutoFeatures = new Set(['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'smart-portfolio', 'ceo-report']);
   for (const job of created.filter(Boolean)) {
-    if (job.channel !== 'internal' || !safeAutoFeatures.has(job.featureId)) continue;
+    if (job.blueprintMode !== 'automatic' || (job.channel === 'internal' && !safeAutoFeatures.has(job.featureId))) continue;
     job.status = 'processing';
     job.execution = await executeAutomationJob(job);
     job.status = job.execution.ok ? 'completed' : 'failed';
@@ -2613,7 +2731,8 @@ export async function appHandler(req, res) {
         const leads = await readJson(LEADS, seedLeads);
         const lead = leads.find((item) => item.id === decodeURIComponent(portalMatch[1]));
         if (!lead) return send(res, 404, 'Client portal not found', 'text/plain');
-        return send(res, 200, portalHtml(lead), 'text/html');
+        const project = await getProject(lead.id);
+        return send(res, 200, portalHtml(lead, project), 'text/html');
       }
       if (url.pathname.startsWith('/assets/')) {
         const assetName = path.basename(url.pathname);
@@ -2702,6 +2821,8 @@ export async function appHandler(req, res) {
       if (url.pathname === '/api/automations/action' && req.method === 'POST') return send(res, 200, await automationAction(await getBody(req)));
       if (url.pathname === '/api/automations/settings' && req.method === 'GET') return send(res, 200, { settings: await automationSettings() });
       if (url.pathname === '/api/automations/settings' && req.method === 'POST') return send(res, 200, { settings: await automationSettings(await getBody(req)) });
+      if (url.pathname === '/api/automation-blueprints' && req.method === 'GET') return send(res, 200, { items: await automationBlueprints() });
+      if (url.pathname === '/api/automation-blueprints' && req.method === 'POST') return send(res, 200, { items: await automationBlueprints(await getBody(req)) });
       if (url.pathname === '/api/saas/run' && req.method === 'POST') {
         const body = await getBody(req);
         return send(res, 200, await runSaasFeature(cleanText(body.featureId), body));
@@ -2753,6 +2874,20 @@ export async function appHandler(req, res) {
       if (url.pathname === '/api/stats' && req.method === 'GET') return send(res, 200, await stats());
       if (url.pathname === '/api/leads' && req.method === 'GET') return send(res, 200, (await readJson(LEADS, seedLeads)).map(enrichLead));
       if (url.pathname === '/api/leads' && req.method === 'POST') return send(res, 200, await addLead(await getBody(req), 'Dashboard'));
+      const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+      if (projectMatch && req.method === 'GET') {
+        const project = await getProject(decodeURIComponent(projectMatch[1]));
+        return project ? send(res, 200, { project }) : send(res, 404, { error: 'Client project not found' });
+      }
+      if (projectMatch && req.method === 'POST') {
+        const project = await saveProject(decodeURIComponent(projectMatch[1]), await getBody(req));
+        return project ? send(res, 200, { project }) : send(res, 404, { error: 'Client project not found' });
+      }
+      const projectSubmissionMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/submissions$/);
+      if (projectSubmissionMatch && req.method === 'POST') {
+        const submission = await addProjectSubmission(decodeURIComponent(projectSubmissionMatch[1]), await getBody(req));
+        return submission ? send(res, 200, { ok: true, submission }) : send(res, 404, { error: 'Client project not found' });
+      }
       const leadUpdateMatch = url.pathname.match(/^\/api\/leads\/([^/]+)$/);
       if (leadUpdateMatch && req.method === 'POST') {
         const leads = await readJson(LEADS, seedLeads);
