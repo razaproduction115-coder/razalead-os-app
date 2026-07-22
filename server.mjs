@@ -39,6 +39,7 @@ const business = {
   jazzcashName: process.env.JAZZCASH_ACCOUNT_NAME || 'Muhammad Raza',
   jazzcashNumber: process.env.JAZZCASH_ACCOUNT_NUMBER || '03343661913',
 };
+const GOOGLE_REVIEW_FALLBACK = 'https://www.google.com/maps/place/Raza+Production/@24.9535744,67.1078253,752m/data=!3m1!1e3!4m8!3m7!1s0x24d506bb92b487f1:0x8b43357ca0259366!8m2!3d24.9535744!4d67.1104002!9m1!1b1!16s%2Fg%2F11td1_yhyy?entry=ttu';
 
 const defaultMeta = {
   graphVersion: process.env.GRAPH_API_VERSION || 'v23.0',
@@ -2476,7 +2477,7 @@ function featureOutput(id, input, leads, jobs, now) {
   if (id === 'content-calendar') return { calendar: contentCalendar(cleanText(input.niche || 'Podcast Studio')), exportReady: true };
   if (id === 'viral-ideas') return { niche: service, ideas: viralIdeas(service) };
   if (id === 'proposal') return { proposal: { client: name, phone, service, budget: cleanText(input.budget || 'Custom quote'), deadline: cleanText(input.deadline || 'After approval'), scope: cleanText(input.notes), brand: business.name, generatedAt: now }, printReady: true };
-  if (id === 'review-collector') return { client: name, sendAfterDays: 3, reviewUrl: cleanText(input.reviewUrl || process.env.GOOGLE_REVIEW_URL || 'https://razaproductions.com'), message: automationMessage(id, input) };
+  if (id === 'review-collector') return { client: name, sendAfterDays: 3, reviewUrl: cleanText(input.reviewUrl || process.env.GOOGLE_REVIEW_URL || GOOGLE_REVIEW_FALLBACK), message: automationMessage(id, input) };
   if (id === 'upsell') return { client: name, inactiveDays: Number(input.inactiveDays || 60), offer: cleanText(input.offer || '20% off on next package'), message: automationMessage(id, input) };
   if (id === 'competitor-alert') return { monitoring: true, schedule: 'daily', sources: ['Facebook', 'Instagram', 'YouTube', 'Website'], configuredSources: 0 };
   if (id === 'ceo-report') {
@@ -2500,7 +2501,7 @@ function featureOutput(id, input, leads, jobs, now) {
       stage: reviewVerified ? 'referral_offer' : 'review_request',
       reviewVerified,
       reviewProof: cleanText(input.reviewProof),
-      reviewUrl: cleanText(input.reviewUrl || process.env.GOOGLE_REVIEW_URL || 'https://razaproductions.com'),
+      reviewUrl: cleanText(input.reviewUrl || process.env.GOOGLE_REVIEW_URL || GOOGLE_REVIEW_FALLBACK),
       reward: reviewVerified ? cleanText(input.reward || '1 free short video') : null,
       message: automationMessage(id, input),
       nextStep: reviewVerified ? 'Send referral reward offer' : 'Wait for review screenshot, then mark 5-star review verified',
@@ -2628,7 +2629,7 @@ function automationMessage(featureId, lead = {}) {
   const service = cleanText(lead.service || 'your project');
   const messages = {
     proposal: `Assalam o Alaikum ${name}. Aapki ${service} requirement ka branded proposal ready hai. Team approval ke baad proposal aapko WhatsApp par share karegi. Agar koi detail update karni ho to reply karein.`,
-    'review-collector': `Assalam o Alaikum ${name}. Raza Productions ke sath kaam karne ka shukriya. Aap apna honest Google review share kar dein: ${process.env.GOOGLE_REVIEW_URL || 'https://razaproductions.com'}`,
+    'review-collector': `Assalam o Alaikum ${name}. Raza Productions ke sath kaam karne ka shukriya. Aap apna honest Google review share kar dein: ${process.env.GOOGLE_REVIEW_URL || GOOGLE_REVIEW_FALLBACK}`,
     upsell: `Assalam o Alaikum ${name}. Aapke next ${service} project par Raza Productions ki taraf se 20% returning-client offer available hai. Details chahiye hon to reply karein.`,
     winback: `Assalam o Alaikum ${name}. Kaafi arsay se baat nahi hui. Aapke next creative project ke liye ek special comeback offer ready hai. Kya team details share kare?`,
     'auto-wishes': `Assalam o Alaikum ${name}. Raza Productions ki taraf se bohat mubarak aur best wishes. Khush rahain!`,
@@ -2636,7 +2637,7 @@ function automationMessage(featureId, lead = {}) {
     'ghost-recover': `Assalam o Alaikum ${name}. Aapki ${service} proposal par quick follow-up hai. Aaj confirmation par 10% limited offer available hai. Kya koi question clear karna hai?`,
     referral: cleanText(lead.reviewStatus).toLowerCase() === 'verified' || Boolean(lead.reviewVerified)
       ? `Assalam o Alaikum ${name}. Aapke 5-star review aur support ka bohat shukriya. Agar aap kisi business ya friend ko Raza Productions refer karein, to successful referral par aapko apne next project ke sath ${cleanText(lead.reward || '1 free short video')} complimentary milegi.`
-      : `Assalam o Alaikum ${name}. Raza Productions ke sath kaam karne ka shukriya. Aap apna honest Google review yahan share kar dein: ${cleanText(lead.reviewUrl || process.env.GOOGLE_REVIEW_URL || 'https://razaproductions.com')} Review submit karne ke baad screenshot isi WhatsApp chat mein share kar dein. Verification ke baad hum aapke liye referral reward unlock kar denge.`,
+      : `Assalam o Alaikum ${name}. Raza Productions ke sath kaam karne ka shukriya. Aap apna honest Google review yahan share kar dein: ${cleanText(lead.reviewUrl || process.env.GOOGLE_REVIEW_URL || GOOGLE_REVIEW_FALLBACK)} Review submit karne ke baad screenshot isi WhatsApp chat mein share kar dein. Verification ke baad hum aapke liye referral reward unlock kar denge.`,
     'lost-lead': `Assalam o Alaikum ${name}. Aapke ${service} project ko easy banane ke liye Raza Productions ne aapke liye ek free personalized planning guide prepare ki hai. Guide dekh kar jab ready hon, neeche Book Now select karein. Hamari team aapko free planning call par guide karegi.`,
     'meeting-scheduler': `Assalam o Alaikum ${name}. Aapki ${service} discussion ke liye 3 available meeting slots ready hain. Apna preferred slot select kar dein.`,
     'smart-portfolio': `Assalam o Alaikum ${name}. Aapki ${service} requirement ke mutabiq selected portfolio yahan dekhein: ${process.env.PORTFOLIO_URL || 'https://razaproductions.com'}`,
