@@ -2446,6 +2446,23 @@ function viralIdeas(niche = 'Podcast Studio') {
   ];
 }
 
+function portfolioProjects(service = 'Creative Production') {
+  const value = cleanText(service).toLowerCase();
+  const all = {
+    design: { title: 'Graphic Design Portfolio', type: 'Design', url: 'https://razaproductions.com/graphic-designing-portfolio/' },
+    longVideo: { title: 'Long Video Portfolio', type: 'Long-form video', url: 'https://razaproductions.com/long-video-portfolio/' },
+    reels: { title: 'Reels & Short-form Portfolio', type: 'Short-form video', url: 'https://razaproductions.com/reels-portfolio/' },
+    photography: { title: 'Photography Portfolio', type: 'Photography', url: 'https://razaproductions.com/photography-portfolio/' },
+    youtube: { title: 'Raza Productions YouTube Library', type: 'Video channel', url: 'https://www.youtube.com/@razaproductionspk' },
+    instagram: { title: 'Raza Productions Instagram Work', type: 'Social portfolio', url: 'https://www.instagram.com/razaproductionspk/' },
+    overview: { title: 'Complete Raza Productions Portfolio', type: 'All work', url: 'https://razaproductions.com/portfolio/' },
+  };
+  if (/photo|wedding/.test(value)) return [all.photography, all.reels, all.instagram];
+  if (/graphic|design|brand|social media/.test(value)) return [all.design, all.reels, all.instagram];
+  if (/podcast|video|cinema|film|stream|reel|ai/.test(value)) return [all.longVideo, all.reels, all.youtube];
+  return [all.overview, all.reels, all.youtube];
+}
+
 const featureRequiredFields = {
   proposal: ['name', 'phone', 'service'],
   'content-calendar': ['niche'],
@@ -2461,7 +2478,7 @@ const featureRequiredFields = {
   'ghost-recover': ['name', 'phone', 'service'],
   referral: ['name', 'phone'],
   'viral-ideas': ['niche'],
-  'smart-portfolio': ['name', 'service'],
+  'smart-portfolio': ['name', 'phone', 'service'],
   'lost-lead': ['name', 'phone', 'service'],
 };
 
@@ -2472,9 +2489,10 @@ function missingFeatureFields(id, input = {}) {
 function featureOutput(id, input, leads, jobs, now) {
   const name = cleanText(input.name || 'Client');
   const service = cleanText(input.service || input.niche || 'Creative Production');
+  const niche = cleanText(input.niche || input.service || 'Podcast Studio');
   const phone = cleanText(input.phone);
   if (id === 'content-calendar') return { calendar: contentCalendar(cleanText(input.niche || 'Podcast Studio')), exportReady: true };
-  if (id === 'viral-ideas') return { niche: service, ideas: viralIdeas(service) };
+  if (id === 'viral-ideas') return { niche, ideas: viralIdeas(niche) };
   if (id === 'proposal') return { proposal: { client: name, phone, service, budget: cleanText(input.budget || 'Custom quote'), deadline: cleanText(input.deadline || 'After approval'), scope: cleanText(input.notes), brand: business.name, generatedAt: now }, printReady: true };
   if (id === 'review-collector') return { client: name, sendAfterDays: 3, reviewUrl: cleanText(input.reviewUrl || process.env.GOOGLE_REVIEW_URL || GOOGLE_REVIEW_FALLBACK), message: automationMessage(id, input) };
   if (id === 'upsell') return { client: name, inactiveDays: Number(input.inactiveDays || 60), offer: cleanText(input.offer || '20% off on next package'), message: automationMessage(id, input) };
@@ -2483,7 +2501,7 @@ function featureOutput(id, input, leads, jobs, now) {
     const topLead = [...leads].sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
     return { report: { leads: leads.length, revenue: leads.filter((lead) => ['won', 'completed'].includes(cleanText(lead.status).toLowerCase())).reduce((sum, lead) => sum + Number(lead.value || 0), 0), topLead: topLead?.name || 'None', pendingProposals: jobs.filter((job) => job.featureId === 'proposal' && job.status !== 'completed').length, generatedAt: now } };
   }
-  if (id === 'smart-portfolio') return { client: name, niche: service, projects: [1, 2, 3].map((rank) => ({ rank, title: `${service} selected project ${rank}`, url: `${knowledge.portfolioUrl}#${encodeURIComponent(service.toLowerCase())}` })), message: automationMessage(id, input) };
+  if (id === 'smart-portfolio') return { client: name, niche: service, projects: portfolioProjects(service).map((project, index) => ({ rank: index + 1, ...project })), message: automationMessage(id, input) };
   if (id === 'meeting-scheduler' || id === 'no-show') return { client: name, slots: [1, 2, 3].slice(0, id === 'no-show' ? 2 : 3).map((days, index) => new Date(Date.now() + days * 86400000 + (12 + index * 2) * 3600000).toISOString()), calendarConnected: Boolean(process.env.GOOGLE_CALENDAR_ID), message: automationMessage(id, input) };
   if (id === 'contract-invoice') return { client: name, service, amount: Number(String(input.budget || input.value || 0).replace(/[^0-9]/g, '')) || 0, documents: ['contract', 'invoice'], paymentTerms: '50% advance, balance before final delivery' };
   if (id === 'winback') return { client: name, inactiveDays: Number(input.inactiveDays || 90), offer: cleanText(input.offer || 'Special comeback offer'), message: automationMessage(id, input) };
@@ -2537,7 +2555,7 @@ async function runSaasFeature(id, input = {}) {
   const missing = missingFeatureFields(id, input);
   if (missing.length) return { ok: false, error: `Required fields missing: ${missing.join(', ')}`, missing };
   const output = featureOutput(id, input, leads, jobs, now);
-  const internalOnly = ['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'voice-proposal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'smart-portfolio', 'ceo-report'].includes(id);
+  const internalOnly = ['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'voice-proposal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'ceo-report'].includes(id);
   const job = { id: randomUUID(), featureId: id, featureName: feature.name, status: 'approval_required', channel: internalOnly ? 'internal' : 'whatsapp', risk: internalOnly ? 'low' : 'customer_message', input, output: { ...output, message: output.message || automationMessage(id, input), deliveryMode: 'owner_approval', reason: 'Manual run prepared for owner approval.' }, createdAt: now, updatedAt: now, history: [{ action: 'recommended', at: now, actor: input.actor || 'dashboard' }] };
   if (id === 'client-portal') job.output.portalUrl = `${input.baseUrl || 'https://razalead-os-app.vercel.app'}/portal/${input.leadId || job.id}`;
   if (id === 'proposal') job.output.downloadUrl = `/api/saas/jobs/${job.id}/proposal.pdf`;
@@ -2599,7 +2617,7 @@ async function queueAutomationJob(jobs, featureId, lead, reason, dueAt = new Dat
   if (jobs.some((job) => job.automationKey === key)) return null;
   const feature = saasFeatures.find((item) => item.id === featureId);
   const message = automationMessage(featureId, lead);
-  const internalOnly = ['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'voice-proposal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'smart-portfolio', 'ceo-report'].includes(featureId);
+  const internalOnly = ['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'voice-proposal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'ceo-report'].includes(featureId);
   const job = {
     id: randomUUID(), automationKey: key, featureId, featureName: feature?.name || featureId,
     status: blueprint?.mode === 'automatic' ? 'ready_auto' : 'approval_required', channel: internalOnly ? 'internal' : 'whatsapp', risk: internalOnly ? 'low' : 'customer_message',
@@ -2639,7 +2657,7 @@ function automationMessage(featureId, lead = {}) {
       : `Assalam o Alaikum ${name}. Raza Productions ke sath kaam karne ka shukriya. Aap apna honest Google review yahan share kar dein: ${cleanText(lead.reviewUrl || process.env.GOOGLE_REVIEW_URL || GOOGLE_REVIEW_FALLBACK)} Review submit karne ke baad screenshot isi WhatsApp chat mein share kar dein. Verification ke baad hum aapke liye referral reward unlock kar denge.`,
     'lost-lead': `Assalam o Alaikum ${name}. Aapke ${service} project ko easy banane ke liye Raza Productions ne aapke liye ek free personalized planning guide prepare ki hai. Guide dekh kar jab ready hon, neeche Book Now select karein. Hamari team aapko free planning call par guide karegi.`,
     'meeting-scheduler': `Assalam o Alaikum ${name}. Aapki ${service} discussion ke liye 3 available meeting slots ready hain. Apna preferred slot select kar dein.`,
-    'smart-portfolio': `Assalam o Alaikum ${name}. Aapki ${service} requirement ke mutabiq selected portfolio yahan dekhein: ${process.env.PORTFOLIO_URL || 'https://razaproductions.com'}`,
+    'smart-portfolio': `Assalam o Alaikum ${name}. Aapki ${service} requirement ke mutabiq Raza Productions ka selected work:\n\n${portfolioProjects(service).map((project, index) => `${index + 1}. ${project.title}\n${project.url}`).join('\n\n')}\n\nKisi specific style ka sample chahiye ho to isi chat mein reply karein.`,
   };
   return messages[featureId] || '';
 }
