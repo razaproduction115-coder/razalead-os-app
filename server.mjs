@@ -2780,6 +2780,11 @@ export async function appHandler(req, res) {
         ]);
         return send(res, 200, { stats: dashboardStats, leads, analytics: dashboardAnalytics, team, audit: auditItems, saas });
       }
+      if (url.pathname === '/api/notifications/pulse' && req.method === 'GET') {
+        const [leads, sessions] = await Promise.all([readJson(LEADS, seedLeads), memoryList()]);
+        const latestMessageAt = sessions.map((item) => item.updatedAt || item.lastMessageAt || '').filter(Boolean).sort().at(-1) || '';
+        return send(res, 200, { leads: leads.length, conversations: sessions.length, latestMessageAt, checkedAt: new Date().toISOString() });
+      }
       if (url.pathname === '/api/team' && req.method === 'GET') return send(res, 200, { users: await publicUsers() });
       if (url.pathname === '/api/auth/login' && req.method === 'POST') return send(res, 200, await login(await getBody(req)));
       if (url.pathname === '/api/knowledge' && req.method === 'GET') return send(res, 200, await getKnowledge());
