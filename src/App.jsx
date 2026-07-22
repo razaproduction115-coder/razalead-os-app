@@ -187,11 +187,33 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [sidebar, setSidebar] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
-  const alertsEnabled = false;
+  const [alertsEnabled, setAlertsEnabled] = useState(() => localStorage.getItem("razalead-alerts") !== "off");
+  const alertSnapshot = useRef(null);
+  const alertAudio = useRef(null);
   const notify = (title, message, type = "success") => {
     const id = Date.now();
     setToasts((v) => [...v, { id, title, message, type }]);
     setTimeout(() => setToasts((v) => v.filter((t) => t.id !== id)), 4500);
+  };
+  const playAlertSound = () => {
+    try {
+      const AudioEngine = window.AudioContext || window.webkitAudioContext;
+      const audio = alertAudio.current || new AudioEngine();
+      alertAudio.current = audio;
+      if (audio.state === "suspended") audio.resume();
+      [0, 0.22, 0.48].forEach((delay, index) => {
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+        oscillator.type = index === 1 ? "square" : "sine";
+        oscillator.frequency.value = [880, 1175, 988][index];
+        const start = audio.currentTime + delay;
+        gain.gain.setValueAtTime(0.34, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.28);
+        oscillator.connect(gain).connect(audio.destination);
+        oscillator.start(start);
+        oscillator.stop(start + 0.3);
+      });
+    } catch {}
   };
   const load = async () => {
     setLoading(true);
@@ -218,6 +240,29 @@ function App() {
     return () => window.removeEventListener("keydown", key);
   }, []);
   useEffect(() => {
+    if (!alertsEnabled) return;
+    const check = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const pulse = await api("/api/notifications/pulse");
+        const previous = alertSnapshot.current;
+        alertSnapshot.current = pulse;
+        if (!previous) return;
+        const newChats = pulse.conversations > previous.conversations;
+        const newLeads = pulse.leads > previous.leads;
+        const newerMessage = pulse.latestMessageAt && pulse.latestMessageAt !== previous.latestMessageAt;
+        if (!newChats && !newLeads && !newerMessage) return;
+        playAlertSound();
+        const message = newLeads ? "New lead received." : "New WhatsApp message received.";
+        notify("New activity", message);
+        if (window.Notification?.permission === "granted") new Notification("Raza Lead OS", { body: message, icon: "/icon.svg" });
+      } catch {}
+    };
+    check();
+    const timer = setInterval(check, 30000);
+    return () => clearInterval(timer);
+  }, [alertsEnabled]);
+  useEffect(() => {
     const ready = (event) => {
       event.preventDefault();
       setInstallPrompt(event);
@@ -236,11 +281,15 @@ function App() {
     await installPrompt.userChoice;
     setInstallPrompt(null);
   };
-  const toggleAlerts = () =>
-    notify(
-      "Background alerts paused",
-      "Database quota save karne ke liye continuous alert polling disabled hai. Live Inbox mein manual refresh available hai.",
-    );
+  const toggleAlerts = async () => {
+    const next = !alertsEnabled;
+    setAlertsEnabled(next);
+    localStorage.setItem("razalead-alerts", next ? "on" : "off");
+    alertSnapshot.current = null;
+    if (next && window.Notification && Notification.permission === "default") await Notification.requestPermission();
+    if (next) playAlertSound();
+    notify(next ? "Alerts enabled" : "Alerts paused", next ? "New lead ya chat par sound aur notification aayegi." : "Background activity alerts band hain.");
+  };
   const navigate = (id) => {
     setPage(id);
     setFeature(null);
