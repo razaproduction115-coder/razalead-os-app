@@ -1997,8 +1997,7 @@ async function analytics() {
 }
 
 async function memoryList() {
-  const sessions = await readJson(SESSIONS, {});
-  const leads = await readJson(LEADS, seedLeads);
+  const [sessions, leads] = await Promise.all([readJson(SESSIONS, {}), readJson(LEADS, seedLeads)]);
   const byPhone = new Map(leads.map((lead) => [cleanText(lead.phone).replace(/\D/g, '').slice(-10), lead]));
   return Object.values(sessions).map((session) => {
     const linkedLead = byPhone.get(cleanText(session.phone).replace(/\D/g, '').slice(-10));
