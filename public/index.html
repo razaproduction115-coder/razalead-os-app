@@ -3,41 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#1f9d6b">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <title>RazaLead OS</title>
   <style>
     :root {
       --ink:#13201d;
       --muted:#66736f;
       --line:#dce6e1;
-      --paper:#f5f8f6;
+      --paper:#f7f5ef;
       --panel:#ffffff;
-      --side:#111d1a;
+      --side:#12201d;
       --green:#1f9d6b;
       --gold:#c99736;
       --blue:#286bd6;
       --red:#b84254;
       --soft:#edf4f1;
-      --shadow:0 16px 44px rgba(26,39,36,.12);
+      --cream:#fffaf1;
+      --shadow:0 12px 34px rgba(26,39,36,.1);
       font-family:Segoe UI,Inter,Arial,sans-serif;
     }
     * { box-sizing:border-box; }
     body {
       margin:0;
       background:
-        linear-gradient(135deg,rgba(31,157,107,.08),transparent 34%),
-        linear-gradient(315deg,rgba(201,151,54,.1),transparent 30%),
+        linear-gradient(180deg,rgba(255,255,255,.78),transparent 320px),
+        linear-gradient(135deg,rgba(31,157,107,.08),transparent 36%),
+        linear-gradient(315deg,rgba(201,151,54,.1),transparent 32%),
         var(--paper);
       color:var(--ink);
     }
     button,input,select,textarea { font:inherit; }
     button { cursor:pointer; }
     h1,h2,h3,p { margin:0; }
-    h1 { font-size:34px; line-height:1.08; }
-    h2 { font-size:20px; }
+    h1 { font-family:Georgia,'Times New Roman',serif; font-size:40px; line-height:1.02; letter-spacing:0; }
+    h2 { font-size:20px; letter-spacing:0; }
     h3 { font-size:16px; }
     code { background:#edf4f1; border-radius:6px; padding:3px 6px; }
-    .shell { display:grid; grid-template-columns:282px minmax(0,1fr); min-height:100vh; }
-    .side { background:var(--side); color:#fff; padding:22px; display:flex; flex-direction:column; gap:22px; }
+    .shell { display:grid; grid-template-columns:286px minmax(0,1fr); min-height:100vh; }
+    .side { position:sticky; top:0; height:100vh; background:var(--side); color:#fff; padding:22px; display:flex; flex-direction:column; gap:22px; overflow:auto; }
     .brand { display:flex; gap:12px; align-items:center; }
     .mark { width:46px; height:46px; border-radius:8px; display:grid; place-items:center; background:linear-gradient(135deg,var(--green),var(--gold)); font-size:24px; font-weight:950; }
     .brand b,.brand span { display:block; }
@@ -47,7 +52,7 @@
     .nav button.on,.nav button:hover { background:rgba(255,255,255,.12); color:#fff; }
     .note { margin-top:auto; border:1px solid rgba(255,255,255,.16); border-radius:8px; padding:14px; background:rgba(255,255,255,.06); }
     .note p { color:#a9bbb5; font-size:13px; margin-top:6px; line-height:1.45; }
-    .main { padding:24px; }
+    .main { padding:26px; max-width:1520px; width:100%; }
     .top { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:18px; }
     .eyebrow { margin:0 0 6px; color:#167e55; font-size:12px; font-weight:950; text-transform:uppercase; }
     .actions { display:flex; gap:9px; flex-wrap:wrap; }
@@ -57,17 +62,17 @@
     .view { display:none; }
     .view.on { display:block; }
     .muted { color:var(--muted); }
-    .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(175px,1fr)); gap:12px; }
     .metric,.panel,.card { background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
-    .metric { padding:18px; }
+    .metric { padding:18px; background:linear-gradient(180deg,#fff,var(--cream)); }
     .metric span { color:var(--muted); }
     .metric b { display:block; margin-top:8px; font-size:30px; }
     .metric small { display:block; margin-top:6px; color:#167e55; font-weight:850; }
-    .grid { display:grid; grid-template-columns:1.25fr .75fr; gap:14px; margin-top:14px; }
+    .grid { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr); gap:14px; margin-top:14px; align-items:start; }
     .panel { padding:18px; }
     .head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:14px; }
     .form { display:grid; gap:10px; }
-    .form input,.form select,.form textarea,.composer input { border:1px solid var(--line); border-radius:8px; padding:11px; background:#fff; min-width:0; }
+    .form input,.form select,.form textarea,.composer input { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; min-width:0; width:100%; }
     .form textarea { min-height:78px; resize:vertical; }
     .lead { display:grid; grid-template-columns:1.1fr .75fr 86px 95px 110px; gap:10px; align-items:center; border-top:1px solid #e7efeb; padding:12px 0; }
     .pill { display:inline-block; width:max-content; border-radius:999px; padding:5px 9px; font-size:12px; font-weight:900; background:#dff7ea; color:#11613e; }
@@ -77,10 +82,17 @@
     .pill.warm { background:#fff0d8; color:#7a4c11; }
     .scorebar { height:9px; width:100%; border-radius:99px; background:#edf4f1; overflow:hidden; }
     .scorebar span { display:block; height:100%; background:linear-gradient(90deg,var(--green),var(--gold)); }
-    .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
     .card { padding:16px; }
     .card p { margin-top:7px; color:var(--muted); font-size:14px; line-height:1.45; }
-    .phonewrap { display:grid; grid-template-columns:420px minmax(0,1fr); gap:14px; }
+    .mini-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .mini-actions button { min-height:32px; padding:0 10px; font-size:13px; }
+    .alert-btn.on { background:#11613e; color:#fff; border-color:#11613e; }
+    .toast-stack { position:fixed; right:18px; bottom:18px; z-index:1000; display:grid; gap:8px; width:min(360px,calc(100vw - 36px)); }
+    .toast { background:#10221d; color:#fff; border-left:4px solid #29aa74; padding:14px 16px; border-radius:7px; box-shadow:0 14px 40px rgba(5,30,22,.22); animation:toastIn .2s ease-out; }
+    .toast b { display:block; margin-bottom:3px; }
+    @keyframes toastIn { from { opacity:0; transform:translateY(8px); } }
+    .phonewrap { display:grid; grid-template-columns:minmax(320px,420px) minmax(0,1fr); gap:14px; align-items:start; }
     .phone { height:690px; background:#0f1b18; border-radius:18px; padding:14px; display:flex; flex-direction:column; box-shadow:var(--shadow); }
     .phonehead { color:#fff; display:flex; justify-content:space-between; padding:6px 6px 12px; gap:8px; }
     .phonehead span { color:#a9bbb5; font-size:13px; }
@@ -94,15 +106,81 @@
     .row { display:grid; grid-template-columns:1fr 120px 140px 120px; gap:8px; align-items:center; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fbfdfc; }
     .setup { display:grid; gap:10px; }
     .setup p { line-height:1.55; }
+    .operator { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr); gap:14px; align-items:start; }
+    .thread-list { display:grid; gap:8px; max-height:640px; overflow:auto; }
+    .thread-card { border:1px solid var(--line); background:#fbfdfc; border-radius:8px; padding:12px; text-align:left; }
+    .thread-card.on { border-color:var(--green); box-shadow:0 0 0 2px rgba(31,157,107,.12); }
+    .thread-meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+    .thread { display:grid; gap:10px; max-height:520px; overflow:auto; padding:12px; border:1px solid var(--line); border-radius:8px; background:#f7fbf9; }
+    .msg { max-width:88%; border:1px solid var(--line); border-radius:8px; padding:10px; background:#fff; }
+    .msg.user { background:#fffaf1; }
+    .msg.bot { margin-left:auto; background:#e8f7ef; }
+    .msg.human { margin-left:auto; background:#e9f0ff; }
+    .msg.system { margin-inline:auto; background:#f2f2f2; color:var(--muted); font-size:13px; }
+    .msg small { display:block; color:var(--muted); margin-top:5px; }
+    .mobilebar { display:none; }
     @media (max-width:1100px) {
       .shell { display:block; }
+      .side { position:relative; height:auto; border-bottom:1px solid rgba(255,255,255,.1); }
+      .nav { grid-template-columns:repeat(5,minmax(140px,1fr)); overflow:auto; padding-bottom:4px; }
+      .nav button { white-space:nowrap; }
       .metrics,.grid,.cards,.phonewrap { grid-template-columns:1fr; }
+      .operator { grid-template-columns:1fr; }
       .lead,.row { grid-template-columns:1fr; }
       .top { display:block; }
       .actions { margin-top:12px; }
       h1 { font-size:28px; }
       .phone { height:620px; }
     }
+    @media (max-width:760px) {
+      .side { padding:14px; gap:14px; }
+      .brand { align-items:flex-start; }
+      .mark { width:42px; height:42px; }
+      .note { display:none; }
+      .main { padding:14px; }
+      .top { margin-bottom:14px; }
+      .actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+      .actions .btn { width:100%; }
+      .metrics { grid-template-columns:1fr 1fr; gap:9px; }
+      .metric { padding:14px; }
+      .metric b { font-size:24px; }
+      .panel { padding:14px; }
+      .lead,.row { gap:6px; }
+      .phone { height:calc(100vh - 230px); min-height:540px; border-radius:12px; }
+      .quick { grid-template-columns:1fr; }
+      .composer { grid-template-columns:1fr; }
+      .form[style] { grid-template-columns:1fr !important; }
+      .cards { grid-template-columns:1fr; }
+      h1 { font-size:30px; }
+    }
+    @media (max-width:430px) {
+      .metrics { grid-template-columns:1fr; }
+      .nav { grid-template-columns:repeat(10,142px); }
+      .phone { min-height:500px; }
+    }
+    body { background:#09120f; color:#edf7f2; }
+    .main { background:linear-gradient(145deg,#0b1512,#101a17); }
+    .metric,.panel,.card { background:#121e1a; border-color:#2a3a34; box-shadow:none; }
+    .metric { background:linear-gradient(180deg,#15231e,#101a17); }
+    .muted,.metric span,.card p { color:#9dafaa; }
+    .form input,.form select,.form textarea,.composer input { background:#0b1512; border-color:#31423b; color:#edf7f2; }
+    .ghost { background:#15231e; border-color:#31423b; color:#edf7f2; }
+    code { background:#1b2b25; color:#b8f2d5; }
+    .saas-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,.7fr); gap:14px; }
+    .feature-output { min-height:220px; white-space:pre-wrap; overflow:auto; }
+    .nav-group { margin:10px 10px 2px; color:#79cda7; font-size:11px; font-weight:900; text-transform:uppercase; }
+    .lead { cursor:pointer; }
+    .lead:hover { background:rgba(31,157,107,.08); }
+    .modal-backdrop { position:fixed; inset:0; z-index:1200; background:rgba(0,0,0,.72); display:none; place-items:center; padding:18px; }
+    .modal-backdrop.on { display:grid; }
+    .modal { width:min(720px,100%); max-height:90vh; overflow:auto; background:#121e1a; border:1px solid #31423b; border-radius:8px; padding:20px; }
+    .widget-launch { position:fixed; right:18px; bottom:18px; z-index:1050; width:58px; height:58px; border:0; border-radius:50%; background:#1f9d6b; color:#fff; font-weight:950; box-shadow:0 12px 36px rgba(0,0,0,.35); }
+    .widget { position:fixed; right:18px; bottom:88px; z-index:1040; width:min(370px,calc(100vw - 28px)); height:520px; display:none; flex-direction:column; background:#111d19; border:1px solid #31423b; border-radius:8px; box-shadow:0 18px 50px rgba(0,0,0,.45); overflow:hidden; }
+    .widget.on { display:flex; }
+    .widget-head { padding:14px; background:#173126; display:flex; justify-content:space-between; }
+    .widget-chat { flex:1; overflow:auto; padding:12px; display:flex; flex-direction:column; gap:8px; }
+    .widget-compose { display:grid; grid-template-columns:1fr auto; gap:8px; padding:10px; border-top:1px solid #31423b; }
+    @media (max-width:900px) { .saas-layout { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -119,18 +197,42 @@
       <nav class="nav">
         <button class="on" data-view="dashboard">Dashboard</button>
         <button data-view="inbox">Lead Inbox</button>
-        <button data-view="bot">Chatbot</button>
+        <button data-view="bot">Option Bot</button>
         <button data-view="followups">Follow-ups</button>
         <button data-view="team">Team Login</button>
         <button data-view="analytics">Analytics</button>
-        <button data-view="memory">AI Memory</button>
+        <button data-view="memory">Conversation Log</button>
         <button data-view="crm">CRM Export</button>
+        <button data-view="templates">Templates</button>
+        <button data-view="audit">Audit Log</button>
         <button data-view="knowledge">Knowledge</button>
         <button data-view="connect">Connect</button>
+        <button data-view="email">Email Settings & History</button>
+        <div class="nav-group">AI Growth Suite</div>
+        <button data-view="saas" data-feature="proposal">01 Proposal Generator</button>
+        <button data-view="saas" data-feature="content-calendar">02 Content Calendar</button>
+        <button data-view="saas" data-feature="review-collector">03 Review Collector</button>
+        <button data-view="saas" data-feature="upsell">04 Upsell Engine</button>
+        <button data-view="saas" data-feature="competitor-alert">05 Competitor Alert</button>
+        <button data-view="saas" data-feature="meeting-scheduler">06 Meeting Scheduler</button>
+        <button data-view="saas" data-feature="contract-invoice">07 Contract + Invoice</button>
+        <button data-view="saas" data-feature="winback">08 Winback</button>
+        <button data-view="saas" data-feature="faq-bot">09 FAQ Bot</button>
+        <button data-view="saas" data-feature="client-portal">10 Client Portal</button>
+        <button data-view="saas" data-feature="auto-wishes">11 Auto Wishes</button>
+        <button data-view="saas" data-feature="voice-proposal">12 Voice to Proposal</button>
+        <button data-view="saas" data-feature="no-show">13 No Show Rescue</button>
+        <button data-view="saas" data-feature="task-assigner">14 Task Assigner</button>
+        <button data-view="saas" data-feature="ghost-recover">15 Ghost Lead Recover</button>
+        <button data-view="saas" data-feature="referral">16 Referral Machine</button>
+        <button data-view="saas" data-feature="viral-ideas">17 Viral Ideas</button>
+        <button data-view="saas" data-feature="smart-portfolio">18 Smart Portfolio</button>
+        <button data-view="saas" data-feature="ceo-report">19 CEO Report</button>
+        <button data-view="saas" data-feature="lost-lead">20 Lost Lead Magnet</button>
       </nav>
       <div class="note">
-        <b>Simplified final scope</b>
-        <p>No bulk sender. No spam risk. Inbound leads, human-friendly chatbot, team access, analytics, CRM export and scheduled follow-ups.</p>
+        <b>Editorial command OS</b>
+        <p>Inbound leads, option-based WhatsApp replies, follow-ups, editable knowledge, team access, analytics and CRM export.</p>
       </div>
     </aside>
 
@@ -142,6 +244,8 @@
         </div>
         <div class="actions">
           <button class="btn ghost" id="refreshBtn">Refresh</button>
+          <button class="btn ghost alert-btn" id="alertsBtn">Enable alerts</button>
+          <button class="btn ghost" id="installBtn" style="display:none">Install app</button>
           <button class="btn dark" id="demoBtn">Run demo chat</button>
           <button class="btn ghost" id="resetBtn">Reset demo</button>
         </div>
@@ -153,6 +257,7 @@
           <div class="metric"><span>Hot leads</span><b id="hotLeads">0</b><small>75%+ potential</small></div>
           <div class="metric"><span>Follow-ups</span><b id="scheduledFollowups">0</b><small>Auto queue</small></div>
           <div class="metric"><span>Due today</span><b id="dueFollowups">0</b><small>Action needed</small></div>
+          <div class="metric"><span>Bot mode</span><b id="aiMode">Options</b><small id="aiModel">Button-only reply</small></div>
         </div>
 
         <div class="grid">
@@ -181,17 +286,66 @@
         </div>
 
         <div class="cards" style="margin-top:14px">
-          <article class="card"><h3>Auto reply</h3><p>Every inbound message receives a clear services reply or relevant answer.</p></article>
+          <article class="card"><h3>Option reply</h3><p>Every inbound message receives a clear menu, button set or configured service answer.</p></article>
           <article class="card"><h3>Lead scoring</h3><p>System labels leads as Hot, Warm or New based on intent, service, budget and booking words.</p></article>
           <article class="card"><h3>Follow-up plan</h3><p>Hot leads get 2, 4 and 7 day follow-ups. Warm leads get 4 and 7 day follow-ups.</p></article>
         </div>
       </section>
 
       <section id="inbox" class="view">
-        <div class="panel">
+        <div class="operator">
+          <div class="panel">
+            <div class="head">
+              <div>
+                <h2>Live Inbox</h2>
+                <p class="muted">Runtime messages, bot replies and human takeover controls. Auto refresh: 30 seconds.</p>
+              </div>
+              <button class="btn ghost" id="liveRefreshBtn">Refresh</button>
+            </div>
+            <div id="liveInboxList" class="thread-list"></div>
+          </div>
+          <div class="panel">
+            <div class="head">
+              <div>
+                <h2 id="activeThreadTitle">Select a conversation</h2>
+                <p class="muted" id="activeThreadMeta">Pause bot, reply manually, then resume when ready.</p>
+              </div>
+              <button class="btn ghost" id="togglePauseBtn" disabled>Pause bot</button>
+            </div>
+            <div class="form" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:12px 0">
+              <select id="conversationAssignee" disabled><option value="">Unassigned</option></select>
+              <select id="conversationStage" disabled><option>New</option><option>Qualified</option><option>Proposal</option><option>Won</option><option>Lost</option></select>
+              <input id="conversationTags" placeholder="Tags: hot, podcast, urgent" disabled>
+              <input id="conversationNotes" placeholder="Private operator notes" disabled>
+              <button class="btn ghost" id="saveConversationBtn" disabled>Save assignment & notes</button>
+            </div>
+            <div id="activeThread" class="thread"><p class="muted">No conversation selected.</p></div>
+            <div class="form" style="margin-top:12px">
+              <select id="manualReplyType" disabled>
+                <option value="text">Text message</option>
+                <option value="image">Image by URL</option>
+                <option value="video">Video by URL</option>
+                <option value="audio">Audio by URL</option>
+                <option value="document">Document by URL</option>
+                <option value="location">Location</option>
+              </select>
+              <textarea id="manualReplyText" placeholder="Message / caption" disabled></textarea>
+              <input id="manualMediaUrl" placeholder="Media/document URL for image, video, audio or document" disabled>
+              <input id="manualFilename" placeholder="Document filename optional" disabled>
+              <div class="form" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+                <input id="manualLatitude" placeholder="Latitude for location" disabled>
+                <input id="manualLongitude" placeholder="Longitude for location" disabled>
+              </div>
+              <input id="manualLocationName" placeholder="Location name/address optional" disabled>
+              <button class="btn" id="manualReplyBtn" disabled>Send manual</button>
+              <p class="muted">Media sending uses a public HTTPS URL. For uploads, use your site/Drive/hosting link first, then paste URL here.</p>
+            </div>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:14px">
           <div class="head">
             <div>
-              <h2>Lead inbox</h2>
+              <h2>Lead board</h2>
               <p class="muted">Owner view for qualification, potential and source tracking.</p>
             </div>
           </div>
@@ -202,27 +356,27 @@
       <section id="bot" class="view">
         <div class="phonewrap">
           <section class="phone">
-            <div class="phonehead"><b>WhatsApp simulator</b><span id="simNumber"></span></div>
+            <div class="phonehead"><b>WhatsApp option simulator</b><span id="simNumber"></span></div>
             <div id="chat" class="chat"></div>
             <div id="quickButtons" class="quick"></div>
             <div class="composer">
-              <input id="chatInput" placeholder="Ask anything: ideas, casual chat, services, podcast, pricing">
+              <input id="chatInput" placeholder="Type services, pricing, podcast or use buttons">
               <button class="btn" id="sendBtn">Send</button>
             </div>
           </section>
           <section class="panel">
-            <h2>Chatbot behavior</h2>
-            <p class="muted" style="margin:6px 0 14px">The bot talks naturally, answers random questions, and only turns serious buying intent into a lead.</p>
+            <h2>Option bot behavior</h2>
+            <p class="muted" style="margin:6px 0 14px">No open AI chat. The bot only shows approved options, configured answers and lead confirmation flows.</p>
             <div class="cards">
-              <button class="btn ghost scenarioBtn" data-text="Tum kaise ho?">Friendly chat</button>
-              <button class="btn ghost scenarioBtn" data-text="Mujhe content ideas chahiye">Idea help</button>
+              <button class="btn ghost scenarioBtn" data-text="Services">Services menu</button>
+              <button class="btn ghost scenarioBtn" data-text="Pricing">Pricing menu</button>
               <button class="btn ghost scenarioBtn" data-text="Podcast book karna hai Saturday ko">Book podcast</button>
             </div>
             <div class="panel" style="box-shadow:none;margin-top:14px;background:#fbfdfc">
               <h2>Conversation rules</h2>
               <div class="setup" style="margin-top:10px">
-                <p><b>Casual:</b> normal friendly answer, no lead created.</p>
-                <p><b>Ideas:</b> asks for goal, audience and format.</p>
+                <p><b>Casual/random:</b> menu reply only.</p>
+                <p><b>Buttons:</b> approved answers from dashboard knowledge.</p>
                 <p><b>Hot:</b> booking, date, budget, quote, urgent, slot.</p>
                 <p><b>Warm:</b> service, package, portfolio, price.</p>
               </div>
@@ -230,23 +384,30 @@
           </section>
         </div>
       </section>
-<select id="followupDelay">
-  <option value="0">Now</option>
-  <option value="5">After 5 min</option>
-  <option value="10">After 10 min</option>
-</select>
-      <button class="btn ghost" id="scheduleFollowupBtn">Schedule follow-up</button>
+
       <section id="followups" class="view">
         <div class="grid">
           <div class="panel">
             <div class="head">
               <div>
-                <h2>Follow-up queue</h2>Add manual follow-up timing options
+                <h2>Follow-up queue</h2>
                 <p class="muted">Scheduled automatically from lead score.</p>
               </div>
-              Add manual follow-up timing options
-              
               <button class="btn" id="runFollowupsBtn">Run due follow-ups</button>
+            </div>
+            <div class="form" style="grid-template-columns:repeat(4,minmax(0,1fr));align-items:end;margin-bottom:14px">
+              <input id="followupName" placeholder="Name">
+              <input id="followupPhone" placeholder="Phone">
+              <input id="followupService" placeholder="Service" value="General">
+              <select id="followupDelay">
+                <option value="0">Now</option>
+                <option value="5">After 5 min</option>
+                <option value="10">After 10 min</option>
+              </select>
+            </div>
+            <div class="form" style="grid-template-columns:minmax(0,1fr) auto;margin-bottom:14px">
+              <input id="followupLeadId" placeholder="Lead ID (optional)">
+              <button class="btn ghost" id="scheduleFollowupBtn">Schedule follow-up</button>
             </div>
             <div id="followupList" class="table"></div>
           </div>
@@ -256,6 +417,7 @@
               <p><b>Hot lead:</b> day 2, day 4, day 7.</p>
               <p><b>Warm lead:</b> day 4, day 7.</p>
               <p><b>New lead:</b> day 7 light reminder.</p>
+              <p><b>Manual follow-up:</b> now, 5 min ya 10 min later quick reminder set kar sakte hain.</p>
               <p><b>Sending:</b> real WhatsApp delivery works after Meta Cloud API token is active.</p>
             </div>
           </div>
@@ -299,8 +461,8 @@
         <div class="panel">
           <div class="head">
             <div>
-              <h2>AI memory / context</h2>
-              <p class="muted">Recent conversation context stored per phone number for better continuity.</p>
+              <h2>Conversation log</h2>
+              <p class="muted">Recent option-bot conversations stored per phone number for review and follow-up.</p>
             </div>
             <button class="btn ghost" id="memoryRefreshBtn">Refresh memory</button>
           </div>
@@ -316,6 +478,7 @@
             <div class="actions">
               <a class="btn" href="/api/crm/export.csv" download="razalead-leads.csv" style="display:inline-grid;place-items:center;text-decoration:none">Download CSV</a>
               <a class="btn ghost" href="/api/crm/export.json" download="razalead-export.json" style="display:inline-grid;place-items:center;text-decoration:none">Download JSON</a>
+              <a class="btn ghost" href="/api/backup" download="razalead-full-backup.json" style="display:inline-grid;place-items:center;text-decoration:none">Full backup</a>
             </div>
           </div>
           <div class="panel">
@@ -325,22 +488,65 @@
         </div>
       </section>
 
+      <section id="templates" class="view">
+        <div class="grid">
+          <div class="panel">
+            <h2>WhatsApp template manager</h2>
+            <p class="muted" style="margin:6px 0 14px">Draft outbound messages here. Matching templates must be approved in Meta before business-initiated delivery.</p>
+            <div class="form">
+              <input id="templateName" placeholder="Template name">
+              <select id="templateCategory"><option>UTILITY</option><option>MARKETING</option><option>AUTHENTICATION</option></select>
+              <input id="templateLanguage" value="en" placeholder="Language code">
+              <select id="templateStatus"><option value="draft">Draft</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+              <textarea id="templateBody" placeholder="Message body. Use {{name}} and {{service}} placeholders."></textarea>
+              <button class="btn" id="saveTemplateBtn">Save template</button>
+            </div>
+          </div>
+          <div class="panel"><h2>Saved templates</h2><div id="templateList" class="table" style="margin-top:12px"></div></div>
+        </div>
+      </section>
+
+      <section id="audit" class="view">
+        <div class="panel">
+          <div class="head"><div><h2>Action audit log</h2><p class="muted">Login, takeover, assignment, manual messages and template changes.</p></div><button class="btn ghost" id="auditRefreshBtn">Refresh</button></div>
+          <div id="auditList" class="table"></div>
+        </div>
+      </section>
+
       <section id="knowledge" class="view">
         <div class="grid">
           <div class="panel">
-            <h2>Editable bot knowledge</h2>
-            <p class="muted" style="margin:6px 0 14px">Change services, FAQ, pricing and podcast slots without touching code.</p>
+            <h2>Editorial bot knowledge</h2>
+            <p class="muted" style="margin:6px 0 14px">Edit approved replies, services, FAQ, pricing, podcast slots, extra knowledge and bot buttons without touching code.</p>
             <div class="form">
               <textarea id="kbGreeting" placeholder="Greeting message"></textarea>
+              <input id="kbPortfolioUrl" placeholder="Portfolio / Google Drive link">
               <textarea id="kbServices" placeholder="One service per line: Service name | Reply"></textarea>
               <textarea id="kbPricing" placeholder="One pricing/package row per line"></textarea>
+              <textarea id="kbPoints" placeholder="Extra knowledge: keywords,comma,separated => answer"></textarea>
               <textarea id="kbFaqs" placeholder="keywords,comma,separated => answer"></textarea>
+              <textarea id="kbButtons" placeholder="Buttons: button_id | Button Label | Optional custom reply"></textarea>
               <button class="btn" id="saveKnowledgeBtn">Save bot knowledge</button>
             </div>
           </div>
           <div class="panel">
             <h2>Services loaded in bot</h2>
             <div id="serviceCards" class="cards"></div>
+            <div class="form" style="margin-top:14px">
+              <input id="newServiceName" placeholder="New service name">
+              <textarea id="newServiceReply" placeholder="Service reply"></textarea>
+              <button class="btn ghost" id="addServiceBtn">Add service</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Bot quick buttons</h2>
+            <div id="buttonCards" class="cards"></div>
+            <div class="form" style="margin-top:14px">
+              <input id="newButtonLabel" placeholder="Button label">
+              <input id="newButtonId" placeholder="Button ID optional">
+              <textarea id="newButtonReply" placeholder="Optional custom reply for this button"></textarea>
+              <button class="btn ghost" id="addButtonBtn">Add button</button>
+            </div>
           </div>
           <div class="panel">
             <h2>Podcast booking flow</h2>
@@ -349,6 +555,15 @@
             <div class="setup" style="margin-top:14px">
               <p><b>Required details:</b> name, preferred day/time, episode type, guest count, budget.</p>
               <p><b>Bot output:</b> slot guidance plus lead registration when intent is clear.</p>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Extra knowledge points</h2>
+            <div id="pointCards" class="table" style="margin-top:12px"></div>
+            <div class="form" style="margin-top:14px">
+              <input id="newPointMatch" placeholder="Keywords: delivery, turnaround">
+              <textarea id="newPointAnswer" placeholder="Answer"></textarea>
+              <button class="btn ghost" id="addPointBtn">Add point</button>
             </div>
           </div>
         </div>
@@ -362,18 +577,18 @@
               <p><b>Webhook path:</b> <code>/webhooks/whatsapp</code></p>
               <p><b>Verify token:</b> <code>razalead_os_verify_token</code></p>
               <p><b>Behavior:</b> inbound message -> bot reply -> lead registration when intent is serious.</p>
-              <p><b>Current limitation:</b> Meta needs a public HTTPS deployment URL, not localhost.</p>
+              <p><b>Public callback:</b> <code>https://razalead-os-app.vercel.app/webhooks/whatsapp</code></p>
               <p><b>Status:</b> <span id="metaStatusText">Checking...</span></p>
             </div>
           </div>
           <div class="panel">
             <h2>Connect Meta account</h2>
-            <p class="muted" style="margin:6px 0 12px">Paste fresh Meta values here. They stay local in this app's data folder.</p>
+            <p class="muted" style="margin:6px 0 12px">Account already connected. Fields blank chhorne se current secure values preserve rahengi.</p>
             <div class="form">
-              <input id="metaPhoneNumberId" placeholder="Phone Number ID" value="1171964786000568">
-              <input id="metaWabaId" placeholder="WhatsApp Business Account ID" value="2277937109279661">
+              <input id="metaPhoneNumberId" placeholder="Phone Number ID (already configured)">
+              <input id="metaWabaId" placeholder="WhatsApp Business Account ID (already configured)">
               <input id="metaGraphVersion" placeholder="Graph API Version" value="v23.0">
-              <textarea id="metaAccessToken" placeholder="Fresh Access Token"></textarea>
+              <textarea id="metaAccessToken" placeholder="Access token (already configured - only paste to rotate)"></textarea>
               <button class="btn" id="saveMetaBtn">Save connection & test</button>
             </div>
           </div>
@@ -394,12 +609,144 @@
           </div>
         </div>
       </section>
+
+      <section id="saas" class="view">
+        <div class="saas-layout">
+          <div class="panel">
+            <div class="head"><div><h2 id="featureTitle">AI Growth Suite</h2><p id="featureDescription" class="muted"></p></div><span class="pill" id="featureNumber">01</span></div>
+            <div class="form">
+              <input id="featureName" placeholder="Client name (optional)">
+              <input id="featureEmail" type="email" placeholder="Client email (optional)">
+              <input id="featureService" placeholder="Service / niche" value="Podcast Studio">
+              <input id="featureBudget" placeholder="Budget / offer (optional)">
+              <input id="featureDeadline" placeholder="Deadline / delivery date (optional)">
+              <textarea id="featureNotes" placeholder="URLs, brief, dates, or additional instructions"></textarea>
+              <button class="btn" id="runFeatureBtn">Run feature</button>
+              <a class="btn" id="featureDownloadBtn" href="#" style="display:none;text-decoration:none;align-items:center;justify-content:center">Download PDF</a>
+              <a class="btn ghost" id="calendarCsvBtn" href="/api/saas/content-calendar.csv?niche=Podcast%20Studio" style="display:none;text-decoration:none;align-items:center;justify-content:center">Export 30-day CSV</a>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Result</h2>
+            <p class="muted" style="margin:6px 0 12px">Every run is stored in the permanent CRM audit trail.</p>
+            <pre id="featureOutput" class="feature-output">Select a feature from the sidebar and run it.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="email" class="view">
+        <div class="grid">
+          <div class="panel">
+            <h2>Email & notification settings</h2>
+            <div class="form" style="margin-top:12px">
+              <label><input id="adminEmailEnabled" type="checkbox" style="width:auto"> Admin emails enabled</label>
+              <label><input id="clientEmailEnabled" type="checkbox" style="width:auto"> Client emails enabled</label>
+              <input id="adminEmailAddress" type="email" placeholder="Admin email address">
+              <input id="emailSenderName" placeholder="Sender name" value="Raza Productions">
+              <button class="btn" id="saveEmailSettingsBtn">Save settings</button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="head"><div><h2>Email History</h2><p class="muted">Delivery status, recipient and timestamp.</p></div><button class="btn ghost" id="refreshEmailHistoryBtn">Refresh</button></div>
+            <div id="emailHistoryList" class="table"></div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+  <div class="modal-backdrop" id="leadModal"><div class="modal"><div class="head"><h2>Lead details</h2><button class="btn ghost" id="closeLeadModal">Close</button></div><div id="leadModalBody"></div></div></div>
+  <button class="widget-launch" id="widgetLaunch" title="AI Lead Assistant">AI</button>
+  <aside class="widget" id="leadWidget"><div class="widget-head"><div><b>Raza AI Assistant</b><br><span class="muted">Requirement qualification</span></div><button class="btn ghost" id="widgetClose">×</button></div><div class="widget-chat" id="widgetChat"></div><div class="widget-compose"><input id="widgetInput" placeholder="Type your answer"><button class="btn" id="widgetSend">Send</button></div></aside>
 
   <script>
     let config = null;
     let replyCount = 0;
+    let liveSessions = [];
+    let activePhone = '';
+    let selectedFeature = 'proposal';
+    let saasOverview = { features:[] };
+    let installPrompt = null;
+    let allLeadsCache = [];
+    let widgetSessionId = localStorage.getItem('razalead-widget-session') || crypto.randomUUID();
+    let liveInboxTimer = null;
+    let alertTimer = null;
+    let alertsEnabled = localStorage.getItem('razalead-alerts') === 'on';
+    let alertBaselineReady = false;
+    let knownLeadCount = 0;
+    let knownSessionMessages = {};
+    let alertAudioContext = null;
+    let teamUsers = [];
+    let currentUser = null;
+    const liveInboxIntervalMs = 30000;
+
+    function showToast(title, message) {
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.innerHTML = `<b>${esc(title)}</b><span>${esc(message)}</span>`;
+      $('toastStack').prepend(toast);
+      setTimeout(() => toast.remove(), 7000);
+    }
+
+    function playAlertSound() {
+      try {
+        alertAudioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = alertAudioContext.createOscillator();
+        const gain = alertAudioContext.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, alertAudioContext.currentTime);
+        gain.gain.setValueAtTime(.0001, alertAudioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(.22, alertAudioContext.currentTime + .02);
+        gain.gain.exponentialRampToValueAtTime(.0001, alertAudioContext.currentTime + .32);
+        oscillator.connect(gain); gain.connect(alertAudioContext.destination);
+        oscillator.start(); oscillator.stop(alertAudioContext.currentTime + .34);
+      } catch {}
+    }
+
+    function pushActivityAlert(title, message) {
+      showToast(title, message);
+      playAlertSound();
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body:message, tag:'razalead-activity' });
+      }
+    }
+
+    async function checkNewActivity() {
+      try {
+        const [inbox, stats] = await Promise.all([api('/api/live-inbox'), api('/api/stats')]);
+        const sessions = inbox.sessions || [];
+        const nextMessages = Object.fromEntries(sessions.map((session) => [session.phone, Number(session.messages || 0)]));
+        if (alertBaselineReady && alertsEnabled) {
+          const changed = sessions.filter((session) => Number(session.messages || 0) > Number(knownSessionMessages[session.phone] || 0));
+          const newLeads = Math.max(0, Number(stats.totalLeads || 0) - knownLeadCount);
+          if (changed.length) {
+            const latest = changed[0];
+            pushActivityAlert(latest.needsHuman ? 'Human reply needed' : 'New WhatsApp message', `${latest.name || latest.phone}: ${latest.unresolvedQuestion || latest.lastUserMessage || 'New conversation received'}`);
+          } else if (newLeads > 0) {
+            pushActivityAlert('New lead received', `${newLeads} new lead${newLeads > 1 ? 's' : ''} added to RazaLead OS.`);
+          }
+        }
+        knownSessionMessages = nextMessages;
+        knownLeadCount = Number(stats.totalLeads || 0);
+        alertBaselineReady = true;
+      } catch {}
+    }
+
+    function renderAlertButton() {
+      $('alertsBtn').textContent = alertsEnabled ? 'Alerts on' : 'Enable alerts';
+      $('alertsBtn').classList.toggle('on', alertsEnabled);
+    }
+
+    async function toggleAlerts() {
+      alertsEnabled = !alertsEnabled;
+      if (alertsEnabled && 'Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
+      localStorage.setItem('razalead-alerts', alertsEnabled ? 'on' : 'off');
+      renderAlertButton();
+      if (alertsEnabled) {
+        playAlertSound();
+        showToast('Lead alerts enabled', 'New chats aur leads par sound aur notification milegi.');
+      }
+    }
 
     const $ = (id) => document.getElementById(id);
     const esc = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({
@@ -410,15 +757,19 @@
       "'":'&#039;'
     }[char]));
     const api = (url, options) => fetch(url, options).then((res) => res.json());
-    const chatPlaceholder = 'Ask anything: ideas, casual chat, services, podcast, pricing';
+    const chatPlaceholder = 'Type services, pricing, podcast or use buttons';
+    let knowledgeDraft = null;
 
     document.querySelectorAll('.nav button').forEach((button) => {
-      button.addEventListener('click', () => show(button.dataset.view, button.textContent));
+      button.addEventListener('click', () => {
+        if (button.dataset.feature) selectedFeature = button.dataset.feature;
+        show(button.dataset.view, button.textContent, button);
+      });
     });
 
-    function show(id, title) {
+    function show(id, title, activeButton) {
       document.querySelectorAll('.nav button,.view').forEach((item) => item.classList.remove('on'));
-      document.querySelector(`.nav button[data-view="${id}"]`).classList.add('on');
+      (activeButton || document.querySelector(`.nav button[data-view="${id}"]`)).classList.add('on');
       $(id).classList.add('on');
       $('pageTitle').textContent = title;
       if (id === 'followups') loadFollowups();
@@ -426,7 +777,58 @@
       if (id === 'analytics') loadAnalytics();
       if (id === 'memory') loadMemory();
       if (id === 'crm') loadCrmPreview();
+      if (id === 'templates') loadTemplates();
+      if (id === 'audit') loadAudit();
       if (id === 'knowledge') loadKnowledge();
+      if (id === 'inbox') loadLiveInbox();
+      if (id === 'saas') loadSaasFeature();
+      if (id === 'email') loadEmailPanel();
+      manageLiveInboxTimer(id);
+    }
+
+    async function loadSaasFeature() {
+      if (!saasOverview.features.length) saasOverview = await api('/api/saas/features');
+      const feature = saasOverview.features.find((item) => item.id === selectedFeature) || saasOverview.features[0];
+      if (!feature) return;
+      $('featureTitle').textContent = feature.name;
+      $('featureDescription').textContent = feature.description;
+      $('featureNumber').textContent = String(feature.number).padStart(2, '0');
+      $('pageTitle').textContent = feature.name;
+      $('calendarCsvBtn').style.display = feature.id === 'content-calendar' ? 'flex' : 'none';
+      $('featureDownloadBtn').style.display = 'none';
+      $('calendarCsvBtn').href = `/api/saas/content-calendar.csv?niche=${encodeURIComponent($('featureService').value || 'Podcast Studio')}`;
+      $('featureOutput').textContent = feature.runs ? `${feature.runs} previous run(s). Ready for the next command.` : 'Ready to run.';
+    }
+
+    async function runSelectedFeature() {
+      $('runFeatureBtn').disabled = true;
+      $('featureOutput').textContent = 'Running...';
+      try {
+        const result = await api('/api/saas/run', {
+          method:'POST', headers:{'content-type':'application/json'},
+          body:JSON.stringify({ featureId:selectedFeature, name:$('featureName').value, email:$('featureEmail').value, service:$('featureService').value, niche:$('featureService').value, budget:$('featureBudget').value, deadline:$('featureDeadline').value, notes:$('featureNotes').value, baseUrl:location.origin })
+        });
+        $('featureOutput').textContent = result.ok ? JSON.stringify(result.job.output, null, 2) : (result.error || 'Feature failed');
+        const downloadUrl = result.job?.output?.downloadUrl;
+        $('featureDownloadBtn').style.display = downloadUrl ? 'flex' : 'none';
+        if (downloadUrl) $('featureDownloadBtn').href = downloadUrl;
+        showToast(result.ok ? 'Feature completed' : 'Needs attention', result.ok ? `${result.job.featureName} saved to CRM.` : result.error);
+        saasOverview = { features:[] };
+      } catch (error) {
+        $('featureOutput').textContent = error.message;
+      } finally { $('runFeatureBtn').disabled = false; }
+    }
+
+    function manageLiveInboxTimer(activeView) {
+      if (liveInboxTimer) {
+        clearInterval(liveInboxTimer);
+        liveInboxTimer = null;
+      }
+      if (activeView === 'inbox') {
+        liveInboxTimer = setInterval(() => {
+          if ($('inbox').classList.contains('on')) loadLiveInbox(true);
+        }, liveInboxIntervalMs);
+      }
     }
 
     function scoreBar(score) {
@@ -442,7 +844,7 @@
     function leadRow(lead) {
       const labelClass = lead.label === 'Hot' ? 'hot' : lead.label === 'Warm' ? 'warm' : '';
       return `
-        <div class="lead">
+        <div class="lead" onclick="openLead('${esc(lead.id)}')" role="button" tabindex="0">
           <div><b>${esc(lead.name)}</b><br><span class="muted">${esc(lead.phone)}</span></div>
           <div><span class="pill ${sourceClass(lead.source)}">${esc(lead.source)}</span><br><span class="muted">${esc(lead.service)}</span></div>
           <span class="pill ${labelClass}">${esc(lead.label || 'New')}</span>
@@ -454,6 +856,7 @@
 
     async function refresh() {
       const [stats, leads] = await Promise.all([api('/api/stats'), api('/api/leads')]);
+      allLeadsCache = leads;
       $('totalLeads').textContent = stats.totalLeads;
       $('hotLeads').textContent = stats.hot;
       $('scheduledFollowups').textContent = stats.scheduledFollowups;
@@ -461,22 +864,106 @@
       $('recentLeads').innerHTML = leads.slice(0, 5).map(leadRow).join('') || '<p class="muted">No leads yet.</p>';
       $('allLeads').innerHTML = leads.map(leadRow).join('') || '<p class="muted">No leads yet.</p>';
       loadFollowups();
+      if ($('inbox').classList.contains('on')) loadLiveInbox();
+    }
+
+    function openLead(id) {
+      const lead = allLeadsCache.find((item) => item.id === id);
+      if (!lead) return;
+      $('leadModalBody').innerHTML = `
+        <div class="metrics" style="margin-bottom:14px"><div class="metric"><span>AI Score</span><b>${esc(lead.aiScore || lead.score || 0)}/100</b><small>${esc((lead.scoreReasons || []).join(' · '))}</small></div><div class="metric"><span>Status</span><b style="font-size:22px">${esc(lead.status || 'New')}</b><small>${esc(lead.source)}</small></div></div>
+        <div class="panel" style="box-shadow:none"><p><b>${esc(lead.name)}</b> · ${esc(lead.phone)}</p><p class="muted" style="margin-top:8px">${esc(lead.service)} · ${esc(lead.city || 'City not set')}</p><p style="margin-top:14px;white-space:pre-wrap">${esc(lead.message || 'No requirement saved.')}</p><div class="mini-actions"><a class="btn" href="/api/leads/${encodeURIComponent(lead.id)}/requirement.pdf" style="text-decoration:none;display:flex;align-items:center">Download Requirement PDF</a></div></div>`;
+      $('leadModal').classList.add('on');
+    }
+
+    async function loadEmailPanel() {
+      const [settingsResult, historyResult] = await Promise.all([api('/api/email/settings'), api('/api/email/history')]);
+      const settings = settingsResult.settings || {};
+      $('adminEmailEnabled').checked = Boolean(settings.adminEmail);
+      $('clientEmailEnabled').checked = Boolean(settings.clientEmail);
+      $('adminEmailAddress').value = settings.adminAddress || '';
+      $('emailSenderName').value = settings.senderName || 'Raza Productions';
+      const items = historyResult.items || [];
+      $('emailHistoryList').innerHTML = items.map((item) => `<div class="row"><div><b>${esc(item.subject || 'Email')}</b><br><span class="muted">${esc(item.to)}</span></div><span class="pill ${item.status === 'sent' ? '' : 'hot'}">${esc(item.status || 'queued')}</span><span class="muted">${esc(item.type || 'notification')}</span><span class="muted">${item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</span></div>`).join('') || '<p class="muted">No email activity yet.</p>';
+    }
+
+    async function saveEmailPanel() {
+      await api('/api/email/settings', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ adminEmail:$('adminEmailEnabled').checked, clientEmail:$('clientEmailEnabled').checked, adminAddress:$('adminEmailAddress').value, senderName:$('emailSenderName').value, actor:currentUser?.email || 'dashboard' }) });
+      showToast('Email settings saved', 'Admin aur client notification preferences update ho gayi hain.');
+      await loadEmailPanel();
+    }
+
+    function widgetBubble(text, role) {
+      const bubble = document.createElement('div'); bubble.className = `bubble ${role === 'user' ? 'user' : ''}`; bubble.textContent = text; $('widgetChat').appendChild(bubble); $('widgetChat').scrollTop = $('widgetChat').scrollHeight;
+    }
+
+    async function widgetSend(text, intent) {
+      const value = text ?? $('widgetInput').value.trim();
+      if (value) widgetBubble(value, 'user');
+      $('widgetInput').value = '';
+      const result = await api('/api/widget/message', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ sessionId:widgetSessionId, text:value, intent }) });
+      widgetSessionId = result.sessionId; localStorage.setItem('razalead-widget-session', widgetSessionId); widgetBubble(result.reply, 'bot');
+      if (result.lead) { showToast('New website lead created', `${result.lead.name} · AI Score ${result.lead.aiScore}/100`); await refresh(); }
     }
 
     function fillServices() {
       $('leadService').innerHTML = config.knowledge.services.map((service) => `<option>${esc(service.name)}</option>`).join('');
       $('serviceCards').innerHTML = config.knowledge.services.map((service) => `
-        <article class="card"><h3>${esc(service.name)}</h3><p>${esc(service.reply)}</p></article>
+        <article class="card">
+          <h3>${esc(service.name)}</h3>
+          <p>${esc(service.reply)}</p>
+          <div class="mini-actions"><button class="btn ghost removeServiceBtn" data-id="${esc(service.id)}">Remove</button></div>
+        </article>
       `).join('');
       $('slotList').innerHTML = config.knowledge.podcastSlots.map((slot) => `<p>${esc(slot)}</p>`).join('');
+      $('buttonCards').innerHTML = (config.knowledge.quickButtons || []).map((button, index) => `
+        <article class="card">
+          <h3>${esc(button.label)}</h3>
+          <p>${index < 3 ? 'WhatsApp visible button' : 'Dashboard option'} / ${esc(button.id)}${button.reply ? ` - ${esc(button.reply)}` : ''}</p>
+          <div class="mini-actions">
+            <button class="btn ghost moveButtonBtn" data-index="${index}" data-dir="-1">Move up</button>
+            <button class="btn ghost moveButtonBtn" data-index="${index}" data-dir="1">Move down</button>
+            <button class="btn ghost removeButtonBtn" data-id="${esc(button.id)}">Remove</button>
+          </div>
+        </article>
+      `).join('');
+      $('pointCards').innerHTML = (config.knowledge.knowledgePoints || []).map((point, index) => `
+        <div class="row">
+          <div><b>${esc((point.match || []).join(', '))}</b><br><span class="muted">${esc(point.answer)}</span></div>
+          <span class="pill">point</span>
+          <button class="btn ghost removePointBtn" data-index="${index}">Remove</button>
+          <span class="muted">editable</span>
+        </div>
+      `).join('') || '<p class="muted">No extra points yet.</p>';
+      document.querySelectorAll('.removeServiceBtn').forEach((button) => button.addEventListener('click', () => removeService(button.dataset.id)));
+      document.querySelectorAll('.removeButtonBtn').forEach((button) => button.addEventListener('click', () => removeButton(button.dataset.id)));
+      document.querySelectorAll('.moveButtonBtn').forEach((button) => button.addEventListener('click', () => moveButton(Number(button.dataset.index), Number(button.dataset.dir))));
+      document.querySelectorAll('.removePointBtn').forEach((button) => button.addEventListener('click', () => removePoint(Number(button.dataset.index))));
     }
 
     function fillKnowledgeEditor(kb) {
+      knowledgeDraft = JSON.parse(JSON.stringify(kb));
       $('kbGreeting').value = kb.greeting || '';
+      $('kbPortfolioUrl').value = kb.portfolioUrl || '';
       $('kbServices').value = (kb.services || []).map((service) => `${service.name} | ${service.reply}`).join('\n');
       $('kbSlots').value = (kb.podcastSlots || []).join('\n');
       $('kbPricing').value = (kb.pricing || []).join('\n');
+      $('kbPoints').value = (kb.knowledgePoints || []).map((point) => `${(point.match || []).join(', ')} => ${point.answer}`).join('\n');
       $('kbFaqs').value = (kb.faqs || []).map((faq) => `${(faq.match || []).join(', ')} => ${faq.answer}`).join('\n');
+      $('kbButtons').value = (kb.quickButtons || []).map((button) => `${button.id} | ${button.label} | ${button.reply || ''}`).join('\n');
+    }
+
+    function readKnowledgeEditor() {
+      return {
+        greeting: $('kbGreeting').value,
+        portfolioUrl: $('kbPortfolioUrl').value,
+        services: $('kbServices').value,
+        podcastSlots: $('kbSlots').value,
+        pricing: $('kbPricing').value,
+        knowledgePoints: $('kbPoints').value,
+        faqs: $('kbFaqs').value,
+        quickButtons: $('kbButtons').value,
+      };
     }
 
     async function loadKnowledge() {
@@ -491,13 +978,7 @@
       const kb = await api('/api/knowledge', {
         method:'POST',
         headers:{ 'content-type':'application/json' },
-        body: JSON.stringify({
-          greeting: $('kbGreeting').value,
-          services: $('kbServices').value,
-          podcastSlots: $('kbSlots').value,
-          pricing: $('kbPricing').value,
-          faqs: $('kbFaqs').value,
-        }),
+        body: JSON.stringify(readKnowledgeEditor()),
       });
       config.knowledge = kb;
       fillServices();
@@ -506,8 +987,78 @@
       alert('Bot knowledge updated.');
     }
 
+    async function saveKnowledgePayload(payload, silent = false) {
+      const kb = await api('/api/knowledge', {
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({ ...readKnowledgeEditor(), ...payload }),
+      });
+      config.knowledge = kb;
+      fillServices();
+      fillKnowledgeEditor(kb);
+      if (!silent) alert('Bot knowledge updated.');
+    }
+
+    async function addService() {
+      const name = $('newServiceName').value.trim();
+      const reply = $('newServiceReply').value.trim();
+      if (!name || !reply) return alert('Service name aur reply dono add karo.');
+      const services = [...(config.knowledge.services || []), { name, reply }];
+      $('newServiceName').value = '';
+      $('newServiceReply').value = '';
+      await saveKnowledgePayload({ services }, true);
+    }
+
+    async function removeService(id) {
+      const services = (config.knowledge.services || []).filter((service) => service.id !== id);
+      await saveKnowledgePayload({ services }, true);
+    }
+
+    async function addButton() {
+      const label = $('newButtonLabel').value.trim();
+      const rawId = $('newButtonId').value.trim() || label;
+      const reply = $('newButtonReply').value.trim();
+      if (!label) return alert('Button label add karo.');
+      const id = rawId.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      const quickButtons = [...(config.knowledge.quickButtons || []), { id, label, reply }];
+      $('newButtonLabel').value = '';
+      $('newButtonId').value = '';
+      $('newButtonReply').value = '';
+      await saveKnowledgePayload({ quickButtons }, true);
+    }
+
+    async function removeButton(id) {
+      const quickButtons = (config.knowledge.quickButtons || []).filter((button) => button.id !== id);
+      await saveKnowledgePayload({ quickButtons }, true);
+    }
+
+    async function moveButton(index, direction) {
+      const quickButtons = [...(config.knowledge.quickButtons || [])];
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= quickButtons.length) return;
+      [quickButtons[index], quickButtons[nextIndex]] = [quickButtons[nextIndex], quickButtons[index]];
+      await saveKnowledgePayload({ quickButtons }, true);
+    }
+
+    async function addPoint() {
+      const match = $('newPointMatch').value.split(',').map((word) => word.trim()).filter(Boolean);
+      const answer = $('newPointAnswer').value.trim();
+      if (!match.length || !answer) return alert('Keywords aur answer dono add karo.');
+      const knowledgePoints = [...(config.knowledge.knowledgePoints || []), { match, answer }];
+      $('newPointMatch').value = '';
+      $('newPointAnswer').value = '';
+      await saveKnowledgePayload({ knowledgePoints }, true);
+    }
+
+    async function removePoint(index) {
+      const knowledgePoints = (config.knowledge.knowledgePoints || []).filter((_, itemIndex) => itemIndex !== index);
+      await saveKnowledgePayload({ knowledgePoints }, true);
+    }
+
     async function loadTeam() {
       const result = await api('/api/team');
+      teamUsers = result.users || [];
+      $('conversationAssignee').innerHTML = '<option value="">Unassigned</option>' + teamUsers.map((user) => `<option value="${esc(user.email)}">${esc(user.name)} (${esc(user.role)})</option>`).join('');
       $('teamList').innerHTML = (result.users || []).map((user) => `
         <div class="row">
           <div><b>${esc(user.name)}</b><br><span class="muted">${esc(user.email)}</span></div>
@@ -525,6 +1076,33 @@
         body: JSON.stringify({ email: $('loginEmail').value, password: $('loginPin').value }),
       });
       $('loginStatus').textContent = result.ok ? `Logged in as ${result.user.name} (${result.user.role})` : result.error;
+      if (result.ok) currentUser = result.user;
+    }
+
+    async function loadTemplates() {
+      const result = await api('/api/templates');
+      $('templateList').innerHTML = (result.templates || []).map((item) => `
+        <div class="row"><div><b>${esc(item.name)}</b><br><span class="muted">${esc(item.body)}</span></div><span class="pill">${esc(item.category)}</span><span class="muted">${esc(item.status)}</span><button class="btn ghost removeTemplateBtn" data-id="${esc(item.id)}">Remove</button></div>
+      `).join('') || '<p class="muted">No templates yet.</p>';
+      document.querySelectorAll('.removeTemplateBtn').forEach((button) => button.addEventListener('click', () => removeTemplate(button.dataset.id)));
+    }
+
+    async function saveTemplate() {
+      const result = await api('/api/templates', { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ name:$('templateName').value, category:$('templateCategory').value, language:$('templateLanguage').value, status:$('templateStatus').value, body:$('templateBody').value, actor:currentUser?.email || 'dashboard' }) });
+      if (!result.ok) return alert(result.error || 'Template save nahi hua.');
+      $('templateName').value = '';
+      $('templateBody').value = '';
+      await loadTemplates();
+    }
+
+    async function removeTemplate(id) {
+      await api('/api/templates/remove', { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ id, actor:currentUser?.email || 'dashboard' }) });
+      await loadTemplates();
+    }
+
+    async function loadAudit() {
+      const result = await api('/api/audit-log');
+      $('auditList').innerHTML = (result.items || []).map((item) => `<div class="row"><div><b>${esc(item.action)}</b><br><span class="muted">${esc(item.actor)}</span></div><span class="pill">${esc(item.phone || item.templateName || item.role || 'system')}</span><span class="muted">${new Date(item.at).toLocaleString()}</span><span class="muted">${esc(item.stage || item.messageType || '')}</span></div>`).join('') || '<p class="muted">No actions recorded yet.</p>';
     }
 
     function analyticsRows(data) {
@@ -558,7 +1136,159 @@
           <span class="muted">${session.updatedAt ? new Date(session.updatedAt).toLocaleString() : 'No time'}</span>
           <span class="muted">${esc(session.lastBotMessage).slice(0, 60)}</span>
         </div>
-      `).join('') || '<p class="muted">No memory yet. Use chatbot demo first.</p>';
+      `).join('') || '<p class="muted">No conversation log yet. Use option bot demo first.</p>';
+    }
+
+    function activeSession() {
+      return liveSessions.find((session) => session.phone === activePhone);
+    }
+
+    function renderLiveInbox() {
+      $('liveInboxList').innerHTML = liveSessions.map((session) => `
+        <button class="thread-card ${session.phone === activePhone ? 'on' : ''}" data-phone="${esc(session.phone)}">
+          <b>${esc(session.name || session.phone)}</b><br>
+          <span class="muted">${esc(session.phone)}</span>
+          <div class="thread-meta">
+            <span class="pill ${session.needsHuman || session.botPaused ? 'hot' : ''}">${session.needsHuman ? 'Needs human reply' : session.botPaused ? 'Human mode' : 'Bot on'}</span>
+            <span class="muted">${session.updatedAt ? new Date(session.updatedAt).toLocaleString() : 'No time'}</span>
+          </div>
+          ${session.needsHuman ? `<p style="margin-top:8px;color:#ff9e88"><b>Question:</b> ${esc(session.unresolvedQuestion)}</p>` : ''}
+          <p class="muted" style="margin-top:8px">${esc(session.lastUserMessage || session.lastHumanMessage || session.lastBotMessage || 'No message yet').slice(0, 110)}</p>
+        </button>
+      `).join('') || '<p class="muted">No live conversations yet.</p>';
+      document.querySelectorAll('.thread-card').forEach((button) => {
+        button.addEventListener('click', () => {
+          activePhone = button.dataset.phone;
+          renderLiveInbox();
+          renderActiveThread();
+        });
+      });
+    }
+
+    function renderActiveThread() {
+      const session = activeSession();
+      if (!session) {
+        $('activeThreadTitle').textContent = 'Select a conversation';
+        $('activeThreadMeta').textContent = 'Pause bot, reply manually, then resume when ready.';
+        $('activeThread').innerHTML = '<p class="muted">No conversation selected.</p>';
+        $('togglePauseBtn').disabled = true;
+        $('manualReplyBtn').disabled = true;
+        $('manualReplyText').disabled = true;
+        ['conversationAssignee','conversationStage','conversationTags','conversationNotes','saveConversationBtn'].forEach((id) => $(id).disabled = true);
+        setManualFieldsDisabled(true);
+        return;
+      }
+      $('activeThreadTitle').textContent = session.name || session.phone;
+      $('activeThreadMeta').textContent = `${session.phone} / ${session.botPaused ? 'Human takeover enabled' : 'Bot auto-reply active'}`;
+      $('togglePauseBtn').disabled = false;
+      $('togglePauseBtn').textContent = session.botPaused ? 'Resume bot' : 'Pause bot';
+      $('manualReplyBtn').disabled = false;
+      $('manualReplyText').disabled = false;
+      ['conversationAssignee','conversationStage','conversationTags','conversationNotes','saveConversationBtn'].forEach((id) => $(id).disabled = false);
+      $('conversationAssignee').value = session.assignedTo || '';
+      $('conversationStage').value = session.stage || 'New';
+      $('conversationTags').value = (session.tags || []).join(', ');
+      $('conversationNotes').value = session.notes || '';
+      setManualFieldsDisabled(false);
+      $('activeThread').innerHTML = (session.transcript || []).map((item) => `
+        <div class="msg ${esc(item.role)}">
+          <b>${item.role === 'user' ? 'Customer' : item.role === 'bot' ? 'Bot' : item.role === 'human' ? 'You' : 'System'}</b>
+          <div>${esc(item.text)}</div>
+          <small>${item.at ? new Date(item.at).toLocaleString() : ''}</small>
+        </div>
+      `).join('') || '<p class="muted">No messages yet.</p>';
+      $('activeThread').scrollTop = $('activeThread').scrollHeight;
+    }
+
+    function setManualFieldsDisabled(disabled) {
+      ['manualReplyType','manualMediaUrl','manualFilename','manualLatitude','manualLongitude','manualLocationName'].forEach((id) => {
+        $(id).disabled = disabled;
+      });
+    }
+
+    function updateManualComposer() {
+      const type = $('manualReplyType').value;
+      const mediaMode = ['image','video','audio','document'].includes(type);
+      const locationMode = type === 'location';
+      $('manualMediaUrl').style.display = mediaMode ? 'block' : 'none';
+      $('manualFilename').style.display = type === 'document' ? 'block' : 'none';
+      $('manualLatitude').parentElement.style.display = locationMode ? 'grid' : 'none';
+      $('manualLocationName').style.display = locationMode ? 'block' : 'none';
+      $('manualReplyText').placeholder = type === 'text' ? 'Manual reply to customer' : type === 'location' ? 'Optional location note' : 'Optional caption';
+    }
+
+    async function loadLiveInbox(silent = false) {
+      if (!silent) $('liveRefreshBtn').textContent = 'Refreshing...';
+      const result = await api('/api/live-inbox');
+      liveSessions = result.sessions || [];
+      if (!activePhone && liveSessions[0]) activePhone = liveSessions[0].phone;
+      renderLiveInbox();
+      renderActiveThread();
+      if (!silent) $('liveRefreshBtn').textContent = 'Refresh';
+    }
+
+    async function togglePause() {
+      const session = activeSession();
+      if (!session) return;
+      await api('/api/live-inbox/pause', {
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({ phone: session.phone, paused: !session.botPaused, actor:currentUser?.email || 'dashboard' }),
+      });
+      await loadLiveInbox();
+    }
+
+    async function saveConversation() {
+      const session = activeSession();
+      if (!session) return;
+      await api('/api/live-inbox/update', { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ phone:session.phone, assignedTo:$('conversationAssignee').value, stage:$('conversationStage').value, tags:$('conversationTags').value, notes:$('conversationNotes').value, actor:currentUser?.email || 'dashboard' }) });
+      await loadLiveInbox();
+    }
+
+    async function sendManualReply() {
+      const session = activeSession();
+      const text = $('manualReplyText').value.trim();
+      const type = $('manualReplyType').value;
+      const mediaUrl = $('manualMediaUrl').value.trim();
+      const latitude = $('manualLatitude').value.trim();
+      const longitude = $('manualLongitude').value.trim();
+      if (!session) return;
+      if (type === 'text' && !text) return alert('Message likho.');
+      if (['image','video','audio','document'].includes(type) && !mediaUrl) return alert('Media/document URL paste karo.');
+      if (type === 'location' && (!latitude || !longitude)) return alert('Latitude aur longitude add karo.');
+      $('manualReplyBtn').textContent = 'Sending...';
+      const result = await api('/api/live-inbox/manual-reply', {
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({
+          phone: session.phone,
+          type,
+          text,
+          mediaUrl,
+          filename: $('manualFilename').value,
+          latitude,
+          longitude,
+          locationName: $('manualLocationName').value,
+          address: $('manualLocationName').value,
+          actor: currentUser?.email || 'dashboard',
+        }),
+      });
+      if (!result.ok) {
+        alert(result.error || 'Manual reply send nahi hua.');
+        $('manualReplyBtn').textContent = 'Send manual';
+        return;
+      }
+      if (result.delivery && result.delivery.sent === false) {
+        alert(`WhatsApp delivery fail: ${result.delivery.reason || result.delivery.status || 'Meta API error'}`);
+      }
+      $('manualReplyText').value = '';
+      $('manualMediaUrl').value = '';
+      $('manualFilename').value = '';
+      $('manualLatitude').value = '';
+      $('manualLongitude').value = '';
+      $('manualLocationName').value = '';
+      $('manualReplyBtn').textContent = 'Send manual';
+      await loadLiveInbox();
     }
 
     async function loadCrmPreview() {
@@ -642,6 +1372,31 @@
       alert(`${(result.results || []).length} due follow-up(s) processed.`);
     }
 
+    async function scheduleFollowup() {
+      if (!$('followupPhone').value.trim()) return alert('Follow-up ke liye phone number zaroori hai.');
+      $('scheduleFollowupBtn').textContent = 'Saving...';
+      const result = await api('/api/followups/schedule', {
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({
+          leadId: $('followupLeadId').value,
+          name: $('followupName').value,
+          phone: $('followupPhone').value,
+          service: $('followupService').value,
+          delayMinutes: $('followupDelay').value,
+        }),
+      });
+      if (!(result.items || []).length) alert('Follow-up already scheduled ya phone number invalid hai.');
+      $('scheduleFollowupBtn').textContent = 'Schedule follow-up';
+      $('followupLeadId').value = '';
+      $('followupName').value = '';
+      $('followupPhone').value = '';
+      $('followupService').value = 'General';
+      $('followupDelay').value = '0';
+      await refresh();
+      await loadFollowups();
+    }
+
     async function metaTest() {
       $('metaResult').innerHTML = '<p class="muted">Checking...</p>';
       const result = await api('/api/meta/self-test', { method:'POST' });
@@ -657,7 +1412,11 @@
 
     async function loadMetaSettings() {
       const settings = await api('/api/meta/settings');
-      $('metaStatusText').textContent = `Phone: ${settings.phoneNumberId}, WABA: ${settings.wabaId}, Token: ${settings.accessToken}`;
+      $('metaPhoneNumberId').value = settings.phoneNumberId || '';
+      $('metaWabaId').value = settings.wabaId || '';
+      $('metaGraphVersion').value = settings.graphVersion || 'v23.0';
+      $('metaAccessToken').value = settings.accessToken === 'configured' ? '•••••••••••• (secure token connected)' : '';
+      $('metaStatusText').textContent = `Phone: ${settings.phoneNumberId ? 'configured' : 'missing'}, WABA: ${settings.wabaId ? 'configured' : 'missing'}, Token: ${settings.accessToken}`;
     }
 
     async function saveMetaConnection() {
@@ -669,11 +1428,10 @@
           phoneNumberId: $('metaPhoneNumberId').value,
           wabaId: $('metaWabaId').value,
           graphVersion: $('metaGraphVersion').value,
-          accessToken: $('metaAccessToken').value,
+          accessToken: $('metaAccessToken').value.includes('secure token connected') ? '' : $('metaAccessToken').value,
         }),
       });
       $('saveMetaBtn').textContent = 'Save connection & test';
-      $('metaAccessToken').value = '';
       await loadMetaSettings();
       await metaTest();
     }
@@ -690,26 +1448,68 @@
       config = await api('/api/config');
       $('businessNumber').textContent = config.business.whatsapp;
       $('simNumber').textContent = config.business.whatsapp;
+      $('aiMode').textContent = 'Options';
+      $('aiModel').textContent = 'Button-only reply';
       fillServices();
       fillKnowledgeEditor(config.knowledge);
       await loadMetaSettings();
       await refresh();
       await sendChat('Start', 'start');
+      await loadLiveInbox();
+      await loadTeam();
+      manageLiveInboxTimer('dashboard');
+      updateManualComposer();
+      renderAlertButton();
+      await checkNewActivity();
+      alertTimer = setInterval(checkNewActivity, liveInboxIntervalMs);
     }
 
     $('addLeadBtn').addEventListener('click', addLead);
     $('refreshBtn').addEventListener('click', refresh);
+    $('alertsBtn').addEventListener('click', toggleAlerts);
     $('resetBtn').addEventListener('click', resetDemo);
     $('sendBtn').addEventListener('click', () => sendChat());
     $('runFollowupsBtn').addEventListener('click', runFollowups);
+    $('scheduleFollowupBtn').addEventListener('click', scheduleFollowup);
     $('metaTestBtn').addEventListener('click', metaTest);
     $('saveMetaBtn').addEventListener('click', saveMetaConnection);
     $('loginBtn').addEventListener('click', loginTeam);
     $('memoryRefreshBtn').addEventListener('click', loadMemory);
     $('saveKnowledgeBtn').addEventListener('click', saveKnowledge);
-    $('demoBtn').addEventListener('click', async () => { show('bot', 'Chatbot'); await sendChat('Podcast book karna hai Saturday 4 PM ko. Price bhi bata dein.'); });
+    $('addServiceBtn').addEventListener('click', addService);
+    $('addButtonBtn').addEventListener('click', addButton);
+    $('addPointBtn').addEventListener('click', addPoint);
+    $('liveRefreshBtn').addEventListener('click', loadLiveInbox);
+    $('togglePauseBtn').addEventListener('click', togglePause);
+    $('manualReplyBtn').addEventListener('click', sendManualReply);
+    $('manualReplyType').addEventListener('change', updateManualComposer);
+    $('saveConversationBtn').addEventListener('click', saveConversation);
+    $('saveTemplateBtn').addEventListener('click', saveTemplate);
+    $('auditRefreshBtn').addEventListener('click', loadAudit);
+    $('runFeatureBtn').addEventListener('click', runSelectedFeature);
+    $('saveEmailSettingsBtn').addEventListener('click', saveEmailPanel);
+    $('refreshEmailHistoryBtn').addEventListener('click', loadEmailPanel);
+    $('closeLeadModal').addEventListener('click', () => $('leadModal').classList.remove('on'));
+    $('leadModal').addEventListener('click', (event) => { if (event.target === $('leadModal')) $('leadModal').classList.remove('on'); });
+    $('widgetLaunch').addEventListener('click', async () => { $('leadWidget').classList.add('on'); if (!$('widgetChat').children.length) await widgetSend('', 'start'); });
+    $('widgetClose').addEventListener('click', () => $('leadWidget').classList.remove('on'));
+    $('widgetSend').addEventListener('click', () => widgetSend());
+    $('widgetInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') widgetSend(); });
+    $('featureService').addEventListener('input', () => {
+      $('calendarCsvBtn').href = `/api/saas/content-calendar.csv?niche=${encodeURIComponent($('featureService').value || 'Podcast Studio')}`;
+    });
+    $('demoBtn').addEventListener('click', async () => { show('bot', 'Option Bot'); await sendChat('Start', 'start'); });
     $('chatInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') sendChat(); });
     document.querySelectorAll('.scenarioBtn').forEach((button) => button.addEventListener('click', () => sendChat(button.dataset.text)));
+
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault(); installPrompt = event; $('installBtn').style.display = '';
+    });
+    $('installBtn').addEventListener('click', async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; $('installBtn').style.display = 'none';
+    });
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
     init();
   </script>
