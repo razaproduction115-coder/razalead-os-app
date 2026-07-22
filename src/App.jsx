@@ -1756,31 +1756,35 @@ function Toggle({ label, urdu, checked, set }) {
   );
 }
 
+const featureFormConfig = {
+  proposal: { description: "Client brief se branded proposal PDF prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["email","Client email","email"],["service","Service","text",true],["budget","Quoted amount / Budget","text"],["deadline","Delivery timeline","text"],["notes","Scope and deliverables","textarea"]] },
+  "content-calendar": { description: "Selected niche ke liye 30-day publish-ready calendar banayein.", fields: [["niche","Content niche","text",true]] },
+  "review-collector": { description: "Completed client ke liye 3-day review request prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["reviewUrl","Google review URL","url"]] },
+  upsell: { description: "60-day inactive client ke liye relevant returning-client offer banayein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["service","Previous service","text",true],["inactiveDays","Inactive days","number"],["offer","Upsell offer","text"]] },
+  "contract-invoice": { description: "Won deal ke liye contract aur invoice PDFs prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel"],["email","Client email","email"],["service","Confirmed service","text",true],["budget","Final deal amount","text",true],["deadline","Delivery date","text"],["notes","Final scope and terms","textarea"]] },
+  winback: { description: "90-day inactive client ke liye comeback campaign prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["service","Previous service","text"],["inactiveDays","Inactive days","number"],["offer","Comeback offer","text"]] },
+  "faq-bot": { description: "FAQ knowledge, buttons aur human handoff ka health check run karein.", fields: [] },
+  "auto-wishes": { description: "Birthday ya occasion wish ko 9am delivery ke liye prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["occasion","Occasion","text",true],["deliveryTime","Delivery time","text"]] },
+  "voice-proposal": { description: "Voice-note transcription se structured proposal draft banayein.", fields: [["name","Client name","text",true],["service","Service","text",true],["budget","Budget","text"],["notes","Voice transcription / requirement","textarea",true]] },
+  "no-show": { description: "Missed meeting ke baad do replacement slots prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["service","Meeting purpose","text"],["meetingAt","Missed meeting time","datetime-local"]] },
+  "task-assigner": { description: "Won deal ko production checklist aur team owner assign karein.", fields: [["name","Client name","text",true],["service","Confirmed service","text",true],["assignee","Team / assignee","text"],["notes","Production notes","textarea"]] },
+  "ghost-recover": { description: "48-hour unanswered proposal ke liye controlled follow-up banayein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["service","Proposed service","text",true],["proposalAgeHours","Hours since proposal","number"],["offer","Recovery offer","text"]] },
+  referral: { description: "5-star client ke liye referral reward request prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["reward","Referral reward","text"]] },
+  "viral-ideas": { description: "Niche ke liye hook, script aur CTA ke sath 3 ideas banayein.", fields: [["niche","Content niche","text",true]] },
+  "smart-portfolio": { description: "Lead ki service ke mutabiq 3 relevant portfolio projects select karein.", fields: [["name","Lead name","text",true],["service","Required service / niche","text",true]] },
+  "ceo-report": { description: "Live CRM se leads, confirmed revenue, top lead aur pending proposals compile karein.", fields: [] },
+};
+
+const blankFeatureForm = { name:"", phone:"", email:"", service:"Podcast Studio", niche:"Podcast Studio", budget:"", deadline:"", notes:"", reviewUrl:"", inactiveDays:"", offer:"", occasion:"Birthday", deliveryTime:"09:00 Asia/Karachi", meetingAt:"", assignee:"Production Team", proposalAgeHours:"48", reward:"1 free short video" };
+
 function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
-  const [form, setForm] = useState({
-    name: "",
-    phone: "",
-    email: "",
-    service: "Podcast Studio",
-    budget: "",
-    deadline: "",
-    notes: "",
-  });
+  const config = featureFormConfig[featureId] || { description: fields, fields: [] };
+  const [form, setForm] = useState(blankFeatureForm);
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const run = async () => {
-    if (!form.name.trim()) {
-      notify("Name required", "Please enter client name.", "error");
-      return;
-    }
-    if (featureId === "proposal" && !form.phone.trim()) {
-      notify(
-        "Phone required",
-        "Proposal WhatsApp par send karne ke liye client phone number enter karein.",
-        "error",
-      );
-      return;
-    }
+    const missing = config.fields.filter(([, , , required]) => required).find(([key]) => !String(form[key] || "").trim());
+    if (missing) return notify("Required field missing", `${missing[1]} enter karein.`, "error");
     setBusy(true);
     try {
       const r = await api("/api/saas/run", {
@@ -1788,6 +1792,7 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ featureId, ...form, baseUrl: location.origin }),
       });
+      if (!r.ok) throw new Error(r.error || "Could not generate output");
       setResult(r.job.output);
       notify("Completed", `${title} generated successfully.`);
     } catch (e) {
@@ -1798,11 +1803,23 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
   };
   return (
     <>
-      <PageTitle title={title} urdu={urdu} description={fields} />
+      <PageTitle title={title} urdu={urdu} description={config.description || fields} />
       <div className="mb-5"><FeatureBlueprintEditor feature={{ id: featureId, label: title }} notify={notify} /></div>
       <div className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
         <Card>
           <div className="space-y-4">
+            {config.fields.map(([key, label, type = "text", required]) => (
+              <div key={key}>
+                <label className="label">{label}{required ? " *" : ""}</label>
+                {type === "textarea" ? (
+                  <textarea className="field min-h-28 py-3" value={form[key] || ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
+                ) : (
+                  <input className="field" type={type} inputMode={type === "tel" ? "tel" : undefined} value={form[key] || ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
+                )}
+              </div>
+            ))}
+            {!config.fields.length && <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-slate-300">Ye tool live CRM aur saved settings se output banata hai. Manual client data required nahi.</div>}
+            <div className="hidden">
             {[
               ["name", "Client name / نام"],
               ["phone", "WhatsApp number / واٹس ایپ"],
@@ -1827,6 +1844,7 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
               />
+            </div>
             </div>
             <button
               className="btn-primary w-full"
