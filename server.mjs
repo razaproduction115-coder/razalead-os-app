@@ -2190,6 +2190,21 @@ function requirementPdf(lead) {
   ]);
 }
 
+function lostLeadMagnetPdf(job) {
+  const input = job.input || {};
+  const service = cleanText(input.service || 'Creative Production');
+  const title = cleanText(input.magnetTitle || `${service} Project Starter Guide`);
+  return createTextPdf(title, [
+    { heading: 'Prepared Especially For', body: input.name || 'Valued Client' },
+    { heading: 'Your Project Goal', body: input.goal || `Plan a professional ${service} project with clear scope, production quality and measurable results.` },
+    { heading: 'Step 1 - Define The Outcome', body: `Decide what this ${service} project must achieve: awareness, sales, engagement, event coverage or a premium brand presence.` },
+    { heading: 'Step 2 - Prepare Your Brief', body: 'Keep your brand references, preferred style, required deliverables, audience and ideal launch date ready. A clear brief reduces revisions and protects the timeline.' },
+    { heading: 'Step 3 - Production Checklist', body: `Confirm location, people, products, scripts or talking points, brand assets and approval contact before production begins.` },
+    { heading: 'Recommended Next Step', body: input.offer || `Book a free 15-minute planning call with Raza Productions. We will review your requirement and recommend the right ${service} approach without obligation.` },
+    { heading: 'Book Your Project', body: `${input.bookingUrl || 'https://razaproductions.com/booking/'}\nWhatsApp: ${business.whatsapp}` },
+  ]);
+}
+
 function contractPdf(job) {
   const input = job.input || {};
   return createTextPdf('Production Service Agreement', [
@@ -2427,6 +2442,16 @@ async function runSaasFeature(id, input = {}) {
     output = { niche, projects: [1, 2, 3].map((rank) => ({ rank, title: `${niche} project ${rank}`, url: `${knowledge.portfolioUrl}#${encodeURIComponent(niche.toLowerCase())}` })) };
   } else if (id === 'meeting-scheduler' || id === 'no-show') {
     output = { slots: [1, 2, 3].slice(0, id === 'no-show' ? 2 : 3).map((days, index) => new Date(Date.now() + days * 86400000 + (12 + index * 2) * 3600000).toISOString()), calendarConnected: Boolean(process.env.GOOGLE_CALENDAR_ID) };
+  } else if (id === 'lost-lead') {
+    const service = cleanText(input.service || 'Creative Production');
+    output = {
+      campaign: 'Lost Lead Recovery',
+      magnetTitle: cleanText(input.magnetTitle || `${service} Project Starter Guide`),
+      offer: cleanText(input.offer || 'Free 15-minute project planning call'),
+      bookingUrl: cleanText(input.bookingUrl || 'https://razaproductions.com/booking/'),
+      generatedAt: now,
+      printReady: true,
+    };
   } else {
     output = { queued: true, mode: 'automation', message: `${feature.name} job created.`, integrationReady: true };
   }
@@ -2434,6 +2459,7 @@ async function runSaasFeature(id, input = {}) {
   const job = { id: randomUUID(), featureId: id, featureName: feature.name, status: 'approval_required', channel: internalOnly ? 'internal' : 'whatsapp', risk: internalOnly ? 'low' : 'customer_message', input, output: { ...output, message: output.message || automationMessage(id, input), deliveryMode: 'owner_approval', reason: 'Manual run prepared for owner approval.' }, createdAt: now, updatedAt: now, history: [{ action: 'recommended', at: now, actor: input.actor || 'dashboard' }] };
   if (id === 'client-portal') job.output.portalUrl = `${input.baseUrl || 'https://razalead-os-app.vercel.app'}/portal/${input.leadId || job.id}`;
   if (id === 'proposal') job.output.downloadUrl = `/api/saas/jobs/${job.id}/proposal.pdf`;
+  if (id === 'lost-lead') job.output.downloadUrl = `/api/saas/jobs/${job.id}/lead-magnet.pdf`;
   if (id === 'contract-invoice') {
     job.output.contractUrl = `/api/saas/jobs/${job.id}/contract.pdf`;
     job.output.invoiceUrl = `/api/saas/jobs/${job.id}/invoice.pdf`;
@@ -2473,6 +2499,11 @@ async function queueAutomationJob(jobs, featureId, lead, reason, dueAt = new Dat
   };
   if (featureId === 'client-portal') job.output.portalUrl = `/portal/${lead.id}`;
   if (featureId === 'proposal') job.output.downloadUrl = `/api/saas/jobs/${job.id}/proposal.pdf`;
+  if (featureId === 'lost-lead') {
+    job.output.downloadUrl = `/api/saas/jobs/${job.id}/lead-magnet.pdf`;
+    job.output.magnetTitle = `${cleanText(lead.service || 'Creative Production')} Project Starter Guide`;
+    job.output.bookingUrl = 'https://razaproductions.com/booking/';
+  }
   if (featureId === 'contract-invoice') {
     job.output.contractUrl = `/api/saas/jobs/${job.id}/contract.pdf`;
     job.output.invoiceUrl = `/api/saas/jobs/${job.id}/invoice.pdf`;
@@ -2493,7 +2524,7 @@ function automationMessage(featureId, lead = {}) {
     'no-show': `Assalam o Alaikum ${name}. Aaj ki meeting miss ho gayi thi. Hum aapko do naye time slots offer kar sakte hain. Reschedule karna ho to reply karein.`,
     'ghost-recover': `Assalam o Alaikum ${name}. Aapki ${service} proposal par quick follow-up hai. Aaj confirmation par 10% limited offer available hai. Kya koi question clear karna hai?`,
     referral: `Assalam o Alaikum ${name}. Aapke 5-star feedback ka shukriya. Kisi business ko refer karein aur apne next project ke sath 1 free short video hasil karein.`,
-    'lost-lead': `Assalam o Alaikum ${name}. Aapke ${service} plan ke liye hamari free planning guide ready hai. Project restart karna ho to Book Now reply karein.`,
+    'lost-lead': `Assalam o Alaikum ${name}. Aapke ${service} project ko easy banane ke liye Raza Productions ne aapke liye ek free personalized planning guide prepare ki hai. Guide dekh kar jab ready hon, neeche Book Now select karein. Hamari team aapko free planning call par guide karegi.`,
     'meeting-scheduler': `Assalam o Alaikum ${name}. Aapki ${service} discussion ke liye 3 available meeting slots ready hain. Apna preferred slot select kar dein.`,
     'smart-portfolio': `Assalam o Alaikum ${name}. Aapki ${service} requirement ke mutabiq selected portfolio yahan dekhein: ${process.env.PORTFOLIO_URL || 'https://razaproductions.com'}`,
   };
@@ -2509,6 +2540,7 @@ function automationPreview(featureId, lead = {}) {
   if (featureId === 'viral-ideas') return { ideas: viralIdeas(lead.service || 'Podcast Studio') };
   if (featureId === 'smart-portfolio') return { portfolio: process.env.PORTFOLIO_URL || 'https://razaproductions.com', niche: lead.service || 'Production' };
   if (featureId === 'client-portal') return { portalPath: `/portal/${lead.id}`, progress: Number(lead.progress || 0) };
+  if (featureId === 'lost-lead') return { magnetTitle: `${cleanText(lead.service || 'Creative Production')} Project Starter Guide`, format: 'Branded PDF', delivery: 'WhatsApp document + Book Now CTA', bookingUrl: 'https://razaproductions.com/booking/' };
   if (featureId === 'faq-bot') return { active: true, knowledgeTopics: ['services', 'portfolio', 'podcast booking', 'location', 'payment'] };
   return { lead: lead.name, service: lead.service };
 }
@@ -2539,6 +2571,24 @@ async function executeAutomationJob(job) {
         },
       });
       return { ok: delivery.sent, delivery, documentUrl, error: delivery.sent ? '' : (delivery.response?.error?.message || delivery.reason || 'Proposal PDF delivery failed') };
+    }
+    if (job.featureId === 'lost-lead' && job.output?.downloadUrl) {
+      const baseUrl = cleanText(job.input?.baseUrl || process.env.APP_URL || 'https://razalead-os-app.vercel.app').replace(/\/$/, '');
+      const documentUrl = job.output.downloadUrl.startsWith('http') ? job.output.downloadUrl : `${baseUrl}${job.output.downloadUrl}`;
+      const documentDelivery = await sendWhatsAppPayload(job.input.phone, {
+        type: 'document',
+        document: {
+          link: documentUrl,
+          filename: `Raza-Free-Guide-${compact(job.input?.service || 'Project', 45).replace(/[^a-z0-9]+/gi, '-')}.pdf`,
+          caption: compact(job.output.message, 1024),
+        },
+      });
+      if (!documentDelivery.sent) return { ok: false, delivery: documentDelivery, documentUrl, error: documentDelivery.response?.error?.message || documentDelivery.reason || 'Lead magnet PDF delivery failed' };
+      const ctaDelivery = await sendWhatsAppText(job.input.phone, 'Ready to restart your project? Select an option below.', [
+        { id: 'lost_lead_book_now', label: 'Book Now' },
+        { id: 'lost_lead_human_help', label: 'Talk to Team' },
+      ]);
+      return { ok: ctaDelivery.sent, documentDelivery, ctaDelivery, documentUrl, error: ctaDelivery.sent ? '' : (ctaDelivery.response?.error?.message || ctaDelivery.reason || 'Book Now CTA delivery failed') };
     }
     if (['meeting-scheduler', 'no-show'].includes(job.featureId)) {
       const slots = (job.output?.preview?.slots || job.output?.slots || []).slice(0, job.featureId === 'no-show' ? 2 : 3);
@@ -2841,6 +2891,13 @@ export async function appHandler(req, res) {
         const job = jobs.find((item) => item.id === proposalMatch[1] && item.featureId === 'proposal');
         if (!job) return send(res, 404, { error: 'Proposal not found' });
         return sendDownload(res, proposalPdf(job), 'application/pdf', `Raza-Proposal-${cleanText(job.input?.name || 'Client').replace(/[^a-z0-9]+/gi, '-')}.pdf`);
+      }
+      const magnetMatch = url.pathname.match(/^\/api\/saas\/jobs\/([^/]+)\/lead-magnet\.pdf$/);
+      if (magnetMatch && req.method === 'GET') {
+        const jobs = await readJson(SAAS_JOBS, []);
+        const job = jobs.find((item) => item.id === magnetMatch[1] && item.featureId === 'lost-lead');
+        if (!job) return send(res, 404, { error: 'Lead magnet not found' });
+        return sendDownload(res, lostLeadMagnetPdf(job), 'application/pdf', `Raza-Free-Guide-${cleanText(job.input?.service || 'Project').replace(/[^a-z0-9]+/gi, '-')}.pdf`);
       }
       const contractMatch = url.pathname.match(/^\/api\/saas\/jobs\/([^/]+)\/(contract|invoice)\.pdf$/);
       if (contractMatch && req.method === 'GET') {
