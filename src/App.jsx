@@ -109,22 +109,26 @@ const aiFeatures = [
 ].map(([id, label], i) => ({ id, label, number: i + 1 }));
 
 const api = async (url, options) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const method = String(options?.method || "GET").toUpperCase();
+  const attempts = method === "GET" && !options?.signal ? 2 : 1;
   let response;
-  try {
-    response = await fetch(url, {
-      ...options,
-      signal: options?.signal || controller.signal,
-    });
-  } catch (error) {
-    if (error.name === "AbortError")
-      throw new Error(
-        "Server response timed out. CRM storage may be temporarily unavailable.",
-      );
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 35000);
+    try {
+      response = await fetch(url, { ...options, signal: options?.signal || controller.signal });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (options?.signal || (error.name !== "AbortError" && attempt === attempts - 1)) throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  if (!response) {
+    if (lastError?.name === "AbortError") throw new Error("Server response timed out after retry. CRM storage is temporarily slow; your saved data has not been deleted.");
+    throw lastError || new Error("Server response unavailable.");
   }
   const raw = await response.text();
   let data = {};
