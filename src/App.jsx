@@ -1775,7 +1775,7 @@ const featureFormConfig = {
   "ghost-recover": { description: "48-hour unanswered proposal ke liye controlled follow-up banayein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["service","Proposed service","text",true],["proposalAgeHours","Hours since proposal","number"],["offer","Recovery offer","text"]] },
   referral: { description: "Pehle review request bhejein. Review proof verify hone ke baad hi referral reward offer bhejein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["reviewStatus","Review stage","select",true,[["request","Request review first"],["verified","5-star review verified"]]],["reviewUrl","Google review URL","url"],["reviewProof","Review proof / screenshot note","text"],["reward","Referral reward","text"]] },
   "viral-ideas": { description: "Niche ke liye hook, script aur CTA ke sath 3 ideas banayein.", fields: [["niche","Content niche","text",true]] },
-  "smart-portfolio": { description: "Lead ki service ke mutabiq 3 relevant portfolio projects select karein.", fields: [["name","Lead name","text",true],["service","Required service / niche","text",true]] },
+  "smart-portfolio": { description: "Lead ki service ke mutabiq 3 real portfolio collections select aur WhatsApp par share karein.", fields: [["name","Lead name","text",true],["phone","WhatsApp number","tel",true],["service","Required service / niche","text",true]] },
   "ceo-report": { description: "Live CRM se leads, confirmed revenue, top lead aur pending proposals compile karein.", fields: [] },
 };
 
@@ -1930,6 +1930,16 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
           <h2 className="text-lg font-bold">Generated output</h2>
           {result ? (
             <div className="mt-4">
+              {Array.isArray(result.projects) && (
+                <div className="mb-4 grid gap-3">
+                  {result.projects.map((project) => (
+                    <a key={project.url} href={project.url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950/50 p-4 text-slate-100 no-underline transition hover:border-emerald-500">
+                      <span><b className="block">{project.title}</b><small className="text-slate-400">{project.type || "Portfolio"}</small></span>
+                      <ExternalLink size={18} className="text-emerald-400" />
+                    </a>
+                  ))}
+                </div>
+              )}
               <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap rounded-xl bg-slate-950/70 p-4 text-sm text-slate-300">
                 {JSON.stringify(result, null, 2)}
               </pre>
