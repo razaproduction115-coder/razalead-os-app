@@ -1402,24 +1402,6 @@ function ProposalPage({ notify }) {
       setBusy(false);
     }
   };
-  const approveAndSend = async () => {
-    if (!job) return;
-    setBusy(true);
-    try {
-      const response = await api("/api/automations/action", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jobId: job.id, action: "approve", message: job.output.message }),
-      });
-      if (!response.ok) throw new Error(response.job?.execution?.error || response.error || "Delivery failed");
-      setJob(response.job);
-      notify("Recovery kit sent", "Branded PDF aur Book Now CTA WhatsApp par deliver ho gaye.");
-    } catch (error) {
-      notify("Could not send campaign", error.message, "error");
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <>
       <PageTitle
@@ -1906,8 +1888,8 @@ function LostLeadMagnetPage({ notify }) {
   const [job, setJob] = useState(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api("/api/leads")
-      .then((items) => setLeads((items || []).filter((lead) => String(lead.status || "").toLowerCase() === "lost")))
+    api("/api/lost-leads/eligible")
+      .then((data) => setLeads(data.items || []))
       .catch((error) => notify("Could not load lost leads", error.message, "error"));
   }, []);
   const selectLead = (id) => {
@@ -1942,12 +1924,30 @@ function LostLeadMagnetPage({ notify }) {
       setBusy(false);
     }
   };
+  const approveAndSend = async () => {
+    if (!job) return;
+    setBusy(true);
+    try {
+      const response = await api("/api/automations/action", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, action: "approve", message: job.output.message }),
+      });
+      if (!response.ok) throw new Error(response.job?.execution?.error || response.error || "Delivery failed");
+      setJob(response.job);
+      notify("Recovery kit sent", "Branded PDF aur Book Now CTA WhatsApp par deliver ho gaye.");
+    } catch (error) {
+      notify("Could not send campaign", error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   return <>
-    <PageTitle title="Lost Lead Magnet" urdu="Recovery Campaign" description="Lost lead ko personalized RP-branded guide, WhatsApp message aur Book Now CTA ke sath recover karein." />
+    <PageTitle title="Lost Lead Magnet" urdu="Recovery Campaign" description="Raza AI meaningful chats scan karta hai aur 3 din silent rehne wali engaged leads ko personalized recovery campaign ke liye match karta hai." />
     <div className="mb-5"><FeatureBlueprintEditor feature={{ id: "lost-lead", label: "Lost Lead Magnet" }} notify={notify} /></div>
     <div className="mb-5 grid gap-4 sm:grid-cols-3">
-      <MiniStat label="Eligible lost leads" value={leads.length} />
-      <MiniStat label="Trigger" value="Lost + 3 days" />
+      <MiniStat label="AI-matched leads" value={leads.length} />
+      <MiniStat label="Trigger" value="Engaged + 3 days silent" />
       <MiniStat label="Delivery" value="PDF + WhatsApp CTA" />
     </div>
     <div className="grid gap-5 xl:grid-cols-[.85fr_1.15fr]">
@@ -1956,8 +1956,9 @@ function LostLeadMagnetPage({ notify }) {
           <label className="label">Choose an existing lost lead</label>
           <select className="field" value={selectedId} onChange={(event) => selectLead(event.target.value)}>
             <option value="">Manual client details</option>
-            {leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.name || lead.phone} - {lead.service || "General inquiry"}</option>)}
+            {leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.name || lead.phone} - {lead.service || "General inquiry"} - {lead.inactivityDays}d silent</option>)}
           </select>
+          <p className="mt-2 text-xs text-slate-500">Cold, greeting-only aur one-message chats automatically exclude hoti hain.</p>
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div><label className="label">Client name</label><input className="field" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
