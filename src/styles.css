@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Nastaliq+Urdu:wght@400;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@layer base { * { @apply border-slate-700; } body { @apply m-0 bg-[#0b0b0a] text-[#f4efe5] antialiased; } button,input,select,textarea { font:inherit; } }
+@layer components {
+  .card { @apply rounded-lg border border-[#3a342d] bg-[#181715] p-5 shadow-soft; }
+  .btn-primary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#ff3210] px-4 font-bold text-white transition hover:bg-[#e52a0b] disabled:opacity-50; }
+  .btn-secondary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-600 bg-transparent px-4 font-semibold text-slate-100 transition hover:bg-slate-800; }
+  .field { @apply min-h-12 w-full rounded-lg border border-[#4a4339] bg-black/60 px-4 text-[#f4efe5] outline-none transition placeholder:text-slate-500 focus:border-[#ff3210] focus:ring-2 focus:ring-[#ff3210]/20; }
+  .label { @apply mb-2 block text-sm font-semibold text-slate-300; }
+  .skeleton { @apply animate-pulse rounded-xl bg-slate-700/70; }
+}
+
+/* RP brand compatibility for existing utility-driven screens. */
+.bg-emerald-500 { background-color: #ff3210 !important; }
+.text-emerald-400, .text-emerald-500 { color: #ff5a3d !important; }
+.border-emerald-500 { border-color: #ff3210 !important; }
+.focus\:border-emerald-500:focus { border-color: #ff3210 !important; }
+.bg-emerald-500\/10 { background-color: rgba(255, 50, 16, .10) !important; }
+.bg-emerald-500\/15 { background-color: rgba(255, 50, 16, .15) !important; }
+.bg-emerald-500\/20 { background-color: rgba(255, 50, 16, .20) !important; }
+
+@media (max-width: 640px) {
+  body { font-size: 14px; }
+  .card { border-radius: 1rem; padding: 1rem; }
+  .btn-primary, .btn-secondary { min-height: 2.75rem; border-radius: .75rem; padding-left: .8rem; padding-right: .8rem; }
+  .field { min-height: 2.75rem; border-radius: .75rem; padding-left: .8rem; padding-right: .8rem; }
+  main { overflow-x: hidden; }
+  .mobile-nav { padding-bottom: calc(.5rem + env(safe-area-inset-bottom)); box-shadow: 0 -12px 28px rgba(0,0,0,.22); }
+  .mobile-nav-item { min-height: 3.1rem; justify-content: center; font-size: .65rem; line-height: 1; }
+  .mobile-nav-item span { max-width: 4.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .quick-reply-dock { left: auto !important; right: .75rem; top: 5.25rem !important; bottom: auto !important; width: auto !important; max-width: calc(100vw - 1.5rem); transform: none !important; }
+  .quick-reply-dock > div:last-child { max-height: 46vh; overflow-y: auto; }
+  .quick-reply-dock .grid { grid-template-columns: 1fr; }
+  [class*="min-h-[650px]"] { margin-left: -.25rem; margin-right: -.25rem; }
+  [class*="min-h-[650px]"] > .card:last-child { min-height: calc(100vh - 230px); border-radius: 0; border-color: #26343b; background: #111b21; }
+  [class*="min-h-[650px]"] > .card:last-child > div:first-child { background: #202c33; }
+  [class*="min-h-[650px]"] > .card:last-child > div:nth-child(2) { background-color: #0b141a; background-image: radial-gradient(#1d2a30 1px, transparent 1px); background-size: 18px 18px; }
+  [class*="min-h-[650px]"] > .card:last-child > div:last-child { background: #202c33; }
+}
+
+.quick-reply-dock { position: fixed !important; left: auto !important; right: 1.5rem !important; top: 5.75rem !important; bottom: auto !important; width: 290px !important; max-width: calc(100vw - 3rem); transform: none !important; pointer-events: none; }
+.quick-reply-dock > * { pointer-events: auto; }
+.quick-reply-dock > div:first-child { justify-content: flex-end; }
+@media (max-width: 640px) {
+  .quick-reply-dock { right: .75rem !important; top: 5.25rem !important; bottom: auto !important; width: min(290px, calc(100vw - 1.5rem)) !important; max-width: calc(100vw - 1.5rem); }
+}
