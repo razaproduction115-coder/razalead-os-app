@@ -1328,6 +1328,37 @@ function ProjectWorkspace({ leadId }) {
   );
 }
 
+function ClientPortalPage({ notify }) {
+  const [leads, setLeads] = useState([]);
+  const [selected, setSelected] = useState("");
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api("/api/leads").then((items) => {
+      setLeads(items || []);
+      setSelected((items || [])[0]?.id || "");
+    }).catch((error) => notify("Could not load clients", error.message, "error")).finally(() => setLoading(false));
+  }, []);
+  const visible = leads.filter((lead) => `${lead.name} ${lead.phone} ${lead.service}`.toLowerCase().includes(search.toLowerCase()));
+  const active = leads.find((lead) => lead.id === selected);
+  return <>
+    <PageTitle title="Client Portal" urdu="Project delivery" description="Client select karein, milestones aur delivery links update karein, phir public portal link share karein." action={active && <a className="btn-primary no-underline" href={`/portal/${active.id}`} target="_blank" rel="noreferrer"><ExternalLink size={18}/> Open client view</a>} />
+    <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
+      <Card>
+        <div className="relative"><Search className="absolute left-4 top-3.5 text-slate-500" size={18}/><input className="field pl-11" placeholder="Search client..." value={search} onChange={(e) => setSearch(e.target.value)}/></div>
+        <div className="mt-4 max-h-[70vh] space-y-2 overflow-y-auto">
+          {loading && <Skeleton className="h-24 w-full"/>}
+          {!loading && !visible.length && <p className="py-8 text-center text-sm text-slate-500">No clients found.</p>}
+          {visible.map((lead) => <button key={lead.id} onClick={() => setSelected(lead.id)} className={`w-full rounded-lg border p-3 text-left transition ${selected === lead.id ? "border-orange-500 bg-orange-500/10" : "border-slate-700 hover:bg-slate-800"}`}>
+            <b className="block truncate">{lead.name || lead.phone}</b><span className="mt-1 block truncate text-xs text-slate-500">{lead.service || "Project not set"} · {lead.progress || 0}%</span>
+          </button>)}
+        </div>
+      </Card>
+      <div>{active ? <ProjectWorkspace leadId={active.id}/> : <Card className="grid min-h-72 place-items-center text-slate-500">Select a client to manage the portal.</Card>}</div>
+    </div>
+  </>;
+}
+
 function ProposalPage({ notify }) {
   const [form, setForm] = useState({
       name: "",
@@ -1843,6 +1874,8 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
 }
 function FeaturePage({ feature, notify }) {
   if (!feature) return null;
+  if (feature.id === "client-portal")
+    return <ClientPortalPage notify={notify} />;
   if (feature.id === "competitor-alert")
     return <CompetitorPage notify={notify} />;
   if (feature.id === "meeting-scheduler")
