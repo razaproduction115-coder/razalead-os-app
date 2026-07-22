@@ -2304,7 +2304,7 @@ function seedAutomationBlueprints() {
   const triggers = {
     proposal: 'Lead qualified', 'content-calendar': 'Manual or monthly', 'review-collector': 'Project completed + 3 days', upsell: 'Client inactive 60 days', 'competitor-alert': 'Daily schedule', 'meeting-scheduler': 'Lead requests meeting', 'contract-invoice': 'Deal marked Won', winback: 'Client inactive 90 days', 'faq-bot': 'Incoming WhatsApp question', 'client-portal': 'Deal marked Won', 'auto-wishes': 'Birthday or configured occasion', 'voice-proposal': 'Manual voice note', 'no-show': 'Meeting missed + 5 minutes', 'task-assigner': 'Deal marked Won', 'ghost-recover': 'Proposal unanswered 48 hours', referral: '5-star review received', 'viral-ideas': 'Manual request', 'smart-portfolio': 'Lead asks for portfolio', 'ceo-report': 'Daily 9:00 AM', 'lost-lead': 'Lead lost + 3 days'
   };
-  return SAAS_FEATURES.map((feature) => ({ id: feature.id, name: feature.name, enabled: true, mode: ['proposal','review-collector','upsell','meeting-scheduler','winback','auto-wishes','no-show','ghost-recover','referral','lost-lead'].includes(feature.id) ? 'approval' : 'automatic', trigger: triggers[feature.id] || 'Manual', instructions: feature.description, updatedAt: null }));
+  return saasFeatures.map((feature) => ({ id: feature.id, name: feature.name, enabled: true, mode: ['proposal','review-collector','upsell','meeting-scheduler','winback','auto-wishes','no-show','ghost-recover','referral','lost-lead'].includes(feature.id) ? 'approval' : 'automatic', trigger: triggers[feature.id] || 'Manual', instructions: feature.description, updatedAt: null }));
 }
 
 async function automationBlueprints(input) {
