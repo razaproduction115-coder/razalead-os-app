@@ -2493,7 +2493,19 @@ function featureOutput(id, input, leads, jobs, now) {
   if (id === 'voice-proposal') return { client: name, service, transcription: cleanText(input.notes), proposalDraft: { client: name, service, requirement: cleanText(input.notes), budget: cleanText(input.budget || 'To be confirmed') }, readyForReview: true };
   if (id === 'task-assigner') return { client: name, service, assignee: cleanText(input.assignee || 'Production Team'), tasks: ['Confirm scope', 'Production planning', 'Shoot or recording', 'Edit and quality check', 'Final delivery'] };
   if (id === 'ghost-recover') return { client: name, proposalAgeHours: Number(input.proposalAgeHours || 48), offer: cleanText(input.offer || '10% off today only'), message: automationMessage(id, input) };
-  if (id === 'referral') return { client: name, reward: cleanText(input.reward || '1 free short video'), eligibility: '5-star review', message: automationMessage(id, input) };
+  if (id === 'referral') {
+    const reviewVerified = cleanText(input.reviewStatus).toLowerCase() === 'verified' || Boolean(input.reviewVerified);
+    return {
+      client: name,
+      stage: reviewVerified ? 'referral_offer' : 'review_request',
+      reviewVerified,
+      reviewProof: cleanText(input.reviewProof),
+      reviewUrl: cleanText(input.reviewUrl || process.env.GOOGLE_REVIEW_URL || 'https://razaproductions.com'),
+      reward: reviewVerified ? cleanText(input.reward || '1 free short video') : null,
+      message: automationMessage(id, input),
+      nextStep: reviewVerified ? 'Send referral reward offer' : 'Wait for review screenshot, then mark 5-star review verified',
+    };
+  }
   if (id === 'lost-lead') return { campaign: 'Lost Lead Recovery', magnetTitle: cleanText(input.magnetTitle || `${service} Project Starter Guide`), offer: cleanText(input.offer || 'Free 15-minute project planning call'), bookingUrl: cleanText(input.bookingUrl || 'https://razaproductions.com/booking/'), generatedAt: now, printReady: true };
   return { queued: true, mode: 'automation', integrationReady: true };
 }
@@ -2622,7 +2634,9 @@ function automationMessage(featureId, lead = {}) {
     'auto-wishes': `Assalam o Alaikum ${name}. Raza Productions ki taraf se bohat mubarak aur best wishes. Khush rahain!`,
     'no-show': `Assalam o Alaikum ${name}. Aaj ki meeting miss ho gayi thi. Hum aapko do naye time slots offer kar sakte hain. Reschedule karna ho to reply karein.`,
     'ghost-recover': `Assalam o Alaikum ${name}. Aapki ${service} proposal par quick follow-up hai. Aaj confirmation par 10% limited offer available hai. Kya koi question clear karna hai?`,
-    referral: `Assalam o Alaikum ${name}. Aapke 5-star feedback ka shukriya. Kisi business ko refer karein aur apne next project ke sath 1 free short video hasil karein.`,
+    referral: cleanText(lead.reviewStatus).toLowerCase() === 'verified' || Boolean(lead.reviewVerified)
+      ? `Assalam o Alaikum ${name}. Aapke 5-star review aur support ka bohat shukriya. Agar aap kisi business ya friend ko Raza Productions refer karein, to successful referral par aapko apne next project ke sath ${cleanText(lead.reward || '1 free short video')} complimentary milegi.`
+      : `Assalam o Alaikum ${name}. Raza Productions ke sath kaam karne ka shukriya. Aap apna honest Google review yahan share kar dein: ${cleanText(lead.reviewUrl || process.env.GOOGLE_REVIEW_URL || 'https://razaproductions.com')} Review submit karne ke baad screenshot isi WhatsApp chat mein share kar dein. Verification ke baad hum aapke liye referral reward unlock kar denge.`,
     'lost-lead': `Assalam o Alaikum ${name}. Aapke ${service} project ko easy banane ke liye Raza Productions ne aapke liye ek free personalized planning guide prepare ki hai. Guide dekh kar jab ready hon, neeche Book Now select karein. Hamari team aapko free planning call par guide karegi.`,
     'meeting-scheduler': `Assalam o Alaikum ${name}. Aapki ${service} discussion ke liye 3 available meeting slots ready hain. Apna preferred slot select kar dein.`,
     'smart-portfolio': `Assalam o Alaikum ${name}. Aapki ${service} requirement ke mutabiq selected portfolio yahan dekhein: ${process.env.PORTFOLIO_URL || 'https://razaproductions.com'}`,
@@ -2795,7 +2809,9 @@ async function runAutomationScanner() {
       created.push(await queueAutomationJob(jobs, 'client-portal', lead, 'Won client needs a delivery portal'));
     }
     if (cleanText(lead.meetingStatus).toLowerCase() === 'missed' && Date.now() - new Date(lead.meetingAt || 0).getTime() >= 300000) created.push(await queueAutomationJob(jobs, 'no-show', lead, 'Meeting missed 5+ minutes ago'));
-    if (Number(lead.reviewRating || 0) >= 5) created.push(await queueAutomationJob(jobs, 'referral', lead, 'Five-star client is eligible for referral reward'));
+    if (Number(lead.reviewRating || 0) >= 5 && (lead.reviewVerified || cleanText(lead.reviewProofUrl))) {
+      created.push(await queueAutomationJob(jobs, 'referral', { ...lead, reviewStatus: 'verified' }, 'Verified five-star review is eligible for referral reward'));
+    }
     const dob = lead.dob ? new Date(lead.dob) : null;
     const today = new Date();
     if (dob && dob.getDate() === today.getDate() && dob.getMonth() === today.getMonth()) created.push(await queueAutomationJob(jobs, 'auto-wishes', lead, 'Client birthday is today'));
@@ -3061,7 +3077,7 @@ export async function appHandler(req, res) {
         const index = leads.findIndex((item) => item.id === decodeURIComponent(leadUpdateMatch[1]));
         if (index < 0) return send(res, 404, { error: 'Lead not found' });
         const input = await getBody(req);
-        const allowed = ['name','email','service','status','value','progress','proposalSentAt','proposalRepliedAt','meetingStatus','meetingAt','reviewRating','dob','nextDelivery','portalNote'];
+        const allowed = ['name','email','service','status','value','progress','proposalSentAt','proposalRepliedAt','meetingStatus','meetingAt','reviewRating','reviewVerified','reviewProofUrl','dob','nextDelivery','portalNote'];
         for (const key of allowed) if (input[key] !== undefined) leads[index][key] = ['value','progress','reviewRating'].includes(key) ? Number(input[key] || 0) : cleanText(input[key]);
         leads[index].updatedAt = new Date().toISOString();
         await writeJson(LEADS, leads);
