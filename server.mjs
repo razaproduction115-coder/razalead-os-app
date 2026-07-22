@@ -2480,6 +2480,35 @@ function daysSince(value) {
   return Number.isFinite(time) ? Math.floor((Date.now() - time) / 86400000) : 0;
 }
 
+function meaningfulCustomerTurn(text) {
+  const value = cleanText(text).toLowerCase();
+  if (!value || value.length < 4) return false;
+  return !['hi', 'hello', 'hey', 'start', 'menu', 'assalam o alaikum', 'aoa', 'ok', 'okay', 'thanks', 'thank you'].includes(value);
+}
+
+async function lostLeadCandidates() {
+  const leads = await readJson(LEADS, seedLeads);
+  const sessions = await readJson(SESSIONS, {});
+  const sessionList = Object.values(sessions || {});
+  return leads.map((lead) => {
+    const phone = normalizeWhatsAppNumber(lead.phone);
+    const session = sessionList.find((item) => normalizeWhatsAppNumber(item.phone) === phone);
+    const customerTurns = (session?.transcript || []).filter((item) => item.role === 'user' && meaningfulCustomerTurn(item.text));
+    const staffTurns = (session?.transcript || []).filter((item) => ['bot', 'assistant', 'human'].includes(item.role));
+    const historyTurns = (lead.history || []).filter((item) => meaningfulCustomerTurn(item.message));
+    const depth = Math.max(customerTurns.length, historyTurns.length);
+    const age = daysSince(lead.lastMessageAt || lead.updatedAt || lead.createdAt);
+    const status = cleanText(lead.status).toLowerCase();
+    const label = cleanText(lead.label).toLowerCase();
+    const meaningfulRequirement = meaningfulCustomerTurn(lead.message) && !/^(general inquiry|inquiry submitted)$/i.test(cleanText(lead.message));
+    const engaged = depth >= 2 || (depth >= 1 && staffTurns.length >= 2 && (Number(lead.score || 0) >= 55 || meaningfulRequirement));
+    const commerciallyRelevant = ['lost', 'qualified'].includes(status) || ['warm', 'hot'].includes(label) || Number(lead.score || 0) >= 55;
+    const closed = ['won', 'completed', 'deal won'].includes(status);
+    const eligible = Boolean(phone && age >= 3 && engaged && commerciallyRelevant && !closed);
+    return { ...lead, lostMagnetEligible: eligible, inactivityDays: age, conversationDepth: depth, matchingReason: eligible ? `${depth} meaningful customer message${depth === 1 ? '' : 's'}, ${age} days inactive` : '' };
+  }).filter((lead) => lead.lostMagnetEligible).sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+}
+
 async function queueAutomationJob(jobs, featureId, lead, reason, dueAt = new Date().toISOString()) {
   const blueprints = await automationBlueprints();
   const blueprint = blueprints.find((item) => item.id === featureId);
@@ -2677,6 +2706,7 @@ async function runScheduledAutomationJobs() {
 async function runAutomationScanner() {
   const leads = await readJson(LEADS, seedLeads);
   const jobs = await readJson(SAAS_JOBS, []);
+  const lostCandidateIds = new Set((await lostLeadCandidates()).map((lead) => lead.id));
   const created = [];
   for (const lead of leads) {
     const age = daysSince(lead.updatedAt || lead.lastMessageAt || lead.createdAt);
@@ -2684,7 +2714,7 @@ async function runAutomationScanner() {
     if (status === 'completed' && age >= 3) created.push(await queueAutomationJob(jobs, 'review-collector', lead, 'Project completed 3+ days ago'));
     if (age >= 60) created.push(await queueAutomationJob(jobs, 'upsell', lead, 'Client inactive for 60+ days'));
     if (age >= 90) created.push(await queueAutomationJob(jobs, 'winback', lead, 'Client inactive for 90+ days'));
-    if (status === 'lost' && age >= 3) created.push(await queueAutomationJob(jobs, 'lost-lead', lead, 'Lead lost 3+ days ago'));
+    if (lostCandidateIds.has(lead.id)) created.push(await queueAutomationJob(jobs, 'lost-lead', lead, `Meaningful conversation stopped ${age}+ days ago`));
     if (lead.proposalSentAt && daysSince(lead.proposalSentAt) >= 2 && !lead.proposalRepliedAt) created.push(await queueAutomationJob(jobs, 'ghost-recover', lead, 'Proposal unanswered for 48+ hours'));
     if (['qualified', 'hot'].includes(status) || Number(lead.score || 0) >= 75) created.push(await queueAutomationJob(jobs, 'proposal', lead, 'High-intent lead needs a branded proposal'));
     if (['qualified', 'new'].includes(status) && cleanText(lead.message)) created.push(await queueAutomationJob(jobs, 'smart-portfolio', lead, 'Lead needs service-matched portfolio proof'));
@@ -2875,6 +2905,7 @@ export async function appHandler(req, res) {
       if (url.pathname === '/api/audit-log' && req.method === 'GET') return send(res, 200, { items: await readJson(AUDIT_LOG, []) });
       if (url.pathname === '/api/backup' && req.method === 'GET') return send(res, 200, await backupBundle());
       if (url.pathname === '/api/saas/features' && req.method === 'GET') return send(res, 200, await saasOverview());
+      if (url.pathname === '/api/lost-leads/eligible' && req.method === 'GET') return send(res, 200, { items: await lostLeadCandidates() });
       if (url.pathname === '/api/automations/scan' && req.method === 'POST') return send(res, 200, await runAutomationScanner());
       if (url.pathname === '/api/automations/action' && req.method === 'POST') return send(res, 200, await automationAction(await getBody(req)));
       if (url.pathname === '/api/automations/settings' && req.method === 'GET') return send(res, 200, { settings: await automationSettings() });
