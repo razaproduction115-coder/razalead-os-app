@@ -3269,40 +3269,49 @@ function InboxPage({ notify }) {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
+      const supportedVoice = type !== "audio" || /^audio\/(mp4|ogg|mpeg|aac|amr)/i.test(file.type);
+      const initialType = type === "audio" && !supportedVoice ? "application/octet-stream" : (file.type || "application/octet-stream");
       const up = await api("/api/whatsapp/media/upload", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           dataUrl,
-          mimeType: file.type || "application/octet-stream",
+          mimeType: initialType,
           filename: file.name,
         }),
       });
       if (!up.ok) throw new Error(up.error || "Upload failed");
+      const outboundType = type === "audio" && !supportedVoice ? "document" : type;
       const r = await api("/api/live-inbox/manual-reply", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           phone: active.phone,
-          type,
+          type: outboundType,
           mediaId: up.mediaId,
           filename: file.name,
           text: message,
         }),
       });
-      let deliveredAs = type;
+      let deliveredAs = outboundType === "document" && type === "audio" ? "playable audio file" : type;
       if (!r.delivery?.sent) {
         if (type !== "audio")
           throw new Error(
             r.delivery?.response?.error?.message || "WhatsApp delivery failed",
           );
+        const documentUpload = await api("/api/whatsapp/media/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ dataUrl, mimeType: "application/octet-stream", filename: file.name || `Raza-voice-${Date.now()}.audio` }),
+        });
+        if (!documentUpload.ok) throw new Error(documentUpload.error || "Voice fallback upload failed");
         const fallback = await api("/api/live-inbox/manual-reply", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             phone: active.phone,
             type: "document",
-            mediaId: up.mediaId,
+            mediaId: documentUpload.mediaId,
             filename: file.name || `Raza-voice-${Date.now()}.audio`,
             text: message || "Voice message",
           }),
@@ -3414,9 +3423,10 @@ function InboxPage({ notify }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const preferred = [
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/mp4;codecs=opus",
         "audio/mp4",
         "audio/ogg;codecs=opus",
-        "audio/webm;codecs=opus",
       ].find((type) => MediaRecorder.isTypeSupported(type));
       const recorder = new MediaRecorder(
         stream,
