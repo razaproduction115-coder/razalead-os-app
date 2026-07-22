@@ -1402,6 +1402,24 @@ function ProposalPage({ notify }) {
       setBusy(false);
     }
   };
+  const approveAndSend = async () => {
+    if (!job) return;
+    setBusy(true);
+    try {
+      const response = await api("/api/automations/action", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, action: "approve", message: job.output.message }),
+      });
+      if (!response.ok) throw new Error(response.job?.execution?.error || response.error || "Delivery failed");
+      setJob(response.job);
+      notify("Recovery kit sent", "Branded PDF aur Book Now CTA WhatsApp par deliver ho gaye.");
+    } catch (error) {
+      notify("Could not send campaign", error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       <PageTitle
@@ -1872,6 +1890,99 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
     </>
   );
 }
+
+function LostLeadMagnetPage({ notify }) {
+  const [leads, setLeads] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [form, setForm] = useState({
+    name: "",
+    phone: "",
+    service: "Creative Production",
+    magnetTitle: "",
+    goal: "",
+    offer: "Free 15-minute project planning call",
+    bookingUrl: "https://razaproductions.com/booking/",
+  });
+  const [job, setJob] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api("/api/leads")
+      .then((items) => setLeads((items || []).filter((lead) => String(lead.status || "").toLowerCase() === "lost")))
+      .catch((error) => notify("Could not load lost leads", error.message, "error"));
+  }, []);
+  const selectLead = (id) => {
+    setSelectedId(id);
+    const lead = leads.find((item) => item.id === id);
+    if (!lead) return;
+    setForm((current) => ({
+      ...current,
+      name: lead.name || "",
+      phone: lead.phone || "",
+      service: lead.service || "Creative Production",
+      magnetTitle: `${lead.service || "Creative Production"} Project Starter Guide`,
+      goal: lead.message || "",
+      leadId: lead.id,
+    }));
+  };
+  const generate = async () => {
+    if (!form.name.trim() || !form.phone.trim())
+      return notify("Client details required", "Name aur WhatsApp number enter karein.", "error");
+    setBusy(true);
+    try {
+      const response = await api("/api/saas/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ featureId: "lost-lead", ...form, baseUrl: location.origin }),
+      });
+      setJob(response.job);
+      notify("Premium recovery campaign ready", "PDF aur WhatsApp CTA Automation Control mein approval ke liye ready hain.");
+    } catch (error) {
+      notify("Campaign generation failed", error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <>
+    <PageTitle title="Lost Lead Magnet" urdu="Recovery Campaign" description="Lost lead ko personalized RP-branded guide, WhatsApp message aur Book Now CTA ke sath recover karein." />
+    <div className="mb-5"><FeatureBlueprintEditor feature={{ id: "lost-lead", label: "Lost Lead Magnet" }} notify={notify} /></div>
+    <div className="mb-5 grid gap-4 sm:grid-cols-3">
+      <MiniStat label="Eligible lost leads" value={leads.length} />
+      <MiniStat label="Trigger" value="Lost + 3 days" />
+      <MiniStat label="Delivery" value="PDF + WhatsApp CTA" />
+    </div>
+    <div className="grid gap-5 xl:grid-cols-[.85fr_1.15fr]">
+      <Card>
+        <div className="rounded-lg border border-orange-500/25 bg-orange-500/5 p-4">
+          <label className="label">Choose an existing lost lead</label>
+          <select className="field" value={selectedId} onChange={(event) => selectLead(event.target.value)}>
+            <option value="">Manual client details</option>
+            {leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.name || lead.phone} - {lead.service || "General inquiry"}</option>)}
+          </select>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div><label className="label">Client name</label><input className="field" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div><label className="label">WhatsApp number</label><input className="field" inputMode="tel" placeholder="03XXXXXXXXX" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+          <div className="sm:col-span-2"><label className="label">Service</label><input className="field" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} /></div>
+          <div className="sm:col-span-2"><label className="label">Lead magnet title</label><input className="field" placeholder={`${form.service} Project Starter Guide`} value={form.magnetTitle} onChange={(e) => setForm({ ...form, magnetTitle: e.target.value })} /></div>
+          <div className="sm:col-span-2"><label className="label">Known requirement / project goal</label><textarea className="field min-h-24 py-3" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} /></div>
+          <div className="sm:col-span-2"><label className="label">Recovery offer</label><input className="field" value={form.offer} onChange={(e) => setForm({ ...form, offer: e.target.value })} /></div>
+          <div className="sm:col-span-2"><label className="label">Book Now URL</label><input className="field" value={form.bookingUrl} onChange={(e) => setForm({ ...form, bookingUrl: e.target.value })} /></div>
+        </div>
+        <button className="btn-primary mt-5 w-full" disabled={busy} onClick={generate}>{busy ? <Activity className="animate-spin" size={18}/> : <Sparkles size={18}/>} Generate premium recovery kit</button>
+      </Card>
+      <Card>
+        <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-orange-400">Campaign preview</p><h2 className="mt-1 text-xl font-bold">Personalized comeback kit</h2></div><span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400">RP branded</span></div>
+        {job ? <div className="mt-5 space-y-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-5"><p className="text-xs font-bold uppercase text-slate-500">WhatsApp message</p><p className="mt-3 whitespace-pre-wrap leading-7">{job.output.message}</p></div>
+          <div className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-5"><FileText className="text-orange-400" size={30}/><h3 className="mt-3 text-lg font-bold">{job.output.magnetTitle}</h3><p className="mt-2 text-sm text-slate-400">Agency-branded planning guide, personalized for {form.name}. Includes project planning steps, checklist, offer and booking details.</p></div>
+          <div className="grid gap-3 sm:grid-cols-2"><a className="btn-secondary no-underline" href={job.output.downloadUrl} target="_blank" rel="noreferrer"><Download size={18}/> Preview PDF</a><button className="btn-primary" disabled={busy || job.status === "completed"} onClick={approveAndSend}><CheckCircle2 size={18}/> {job.status === "completed" ? "Sent successfully" : "Approve & send"}</button></div>
+          <p className="rounded-lg bg-slate-800 p-3 text-sm text-slate-400">Nothing has been sent yet. Approval mode mein owner review zaroori hai; Automatic mode mein eligible lost leads ko scheduler khud deliver karega.</p>
+        </div> : <div className="grid min-h-96 place-items-center text-center text-slate-500"><div><Target className="mx-auto mb-3 text-orange-400" size={46}/><p className="font-bold text-slate-300">No recovery kit generated yet</p><p className="mt-2 max-w-sm text-sm">Lost lead choose karein ya manual details enter karke premium campaign generate karein.</p></div></div>}
+      </Card>
+    </div>
+  </>;
+}
+
 function FeaturePage({ feature, notify }) {
   if (!feature) return null;
   if (feature.id === "client-portal")
@@ -1880,6 +1991,8 @@ function FeaturePage({ feature, notify }) {
     return <CompetitorPage notify={notify} />;
   if (feature.id === "meeting-scheduler")
     return <MeetingSchedulerPage notify={notify} />;
+  if (feature.id === "lost-lead")
+    return <LostLeadMagnetPage notify={notify} />;
   return (
     <GeneratorPage
       title={feature.label}
