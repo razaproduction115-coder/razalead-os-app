@@ -1783,6 +1783,35 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
   const [result, setResult] = useState(null);
   const [job, setJob] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [dictating, setDictating] = useState(false);
+  const recognitionRef = useRef(null);
+  const toggleVoiceDictation = () => {
+    if (dictating) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return notify("Voice dictation unavailable", "Chrome browser use karein, ya requirement manually type karein.", "error");
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-PK";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    let confirmed = String(form.notes || "").trim();
+    recognition.onresult = (event) => {
+      let interim = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const words = event.results[index][0].transcript.trim();
+        if (event.results[index].isFinal) confirmed = `${confirmed} ${words}`.trim();
+        else interim = `${interim} ${words}`.trim();
+      }
+      setForm((current) => ({ ...current, notes: `${confirmed} ${interim}`.trim() }));
+    };
+    recognition.onerror = (event) => notify("Microphone issue", event.error === "not-allowed" ? "Browser microphone permission allow karein." : `Voice recognition failed: ${event.error}`, "error");
+    recognition.onend = () => setDictating(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setDictating(true);
+  };
   const run = async () => {
     const missing = config.fields.filter(([, , , required]) => required).find(([key]) => !String(form[key] || "").trim());
     if (missing) return notify("Required field missing", `${missing[1]} enter karein.`, "error");
@@ -1833,7 +1862,15 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
               <div key={key}>
                 <label className="label">{label}{required ? " *" : ""}</label>
                 {type === "textarea" ? (
-                  <textarea className="field min-h-28 py-3" value={form[key] || ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
+                  <>
+                    {featureId === "voice-proposal" && key === "notes" && (
+                      <button type="button" className={dictating ? "btn-primary mb-3 w-full" : "btn-secondary mb-3 w-full"} onClick={toggleVoiceDictation}>
+                        {dictating ? <Square size={18} /> : <Mic size={18} />}
+                        {dictating ? "Stop dictation" : "Start voice dictation"}
+                      </button>
+                    )}
+                    <textarea className="field min-h-28 py-3" placeholder={featureId === "voice-proposal" && key === "notes" ? "Mic button dabayen aur client requirement bolen..." : undefined} value={form[key] || ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
+                  </>
                 ) : type === "select" ? (
                   <select className="field" value={form[key] || ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })}>
                     {(options || []).map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
