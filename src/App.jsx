@@ -1775,7 +1775,7 @@ const featureFormConfig = {
   "ceo-report": { description: "Live CRM se leads, confirmed revenue, top lead aur pending proposals compile karein.", fields: [] },
 };
 
-const blankFeatureForm = { name:"", phone:"", email:"", service:"Podcast Studio", niche:"Podcast Studio", budget:"", deadline:"", notes:"", reviewUrl:"", reviewStatus:"request", reviewProof:"", inactiveDays:"", offer:"", occasion:"Birthday", deliveryTime:"09:00 Asia/Karachi", meetingAt:"", assignee:"Production Team", proposalAgeHours:"48", reward:"1 free short video" };
+const blankFeatureForm = { name:"", phone:"", email:"", service:"Podcast Studio", niche:"Podcast Studio", budget:"", deadline:"", notes:"", reviewUrl:"https://www.google.com/maps/place/Raza+Production/@24.9535744,67.1078253,752m/data=!3m1!1e3!4m8!3m7!1s0x24d506bb92b487f1:0x8b43357ca0259366!8m2!3d24.9535744!4d67.1104002!9m1!1b1!16s%2Fg%2F11td1_yhyy?entry=ttu", reviewStatus:"request", reviewProof:"", inactiveDays:"", offer:"", occasion:"Birthday", deliveryTime:"09:00 Asia/Karachi", meetingAt:"", assignee:"Production Team", proposalAgeHours:"48", reward:"1 free short video" };
 
 function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
   const config = featureFormConfig[featureId] || { description: fields, fields: [] };
