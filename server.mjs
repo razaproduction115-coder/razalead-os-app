@@ -2439,11 +2439,60 @@ async function sendTrackedEmail({ to, subject, text, type = 'notification' }) {
 }
 
 function viralIdeas(niche = 'Podcast Studio') {
+  const value = cleanText(niche || 'creative business');
   return [
-    { hook: `3 mistakes people make before booking a ${niche}`, script: 'Open with the biggest mistake, demonstrate the fix, then show the final result.', cta: 'Comment CHECKLIST.' },
-    { hook: `What nobody tells you about ${niche}`, script: 'Show a surprising behind-the-scenes detail, explain why it matters, and finish with proof.', cta: 'DM us for a custom plan.' },
-    { hook: `${niche} before vs after`, script: 'Use a fast visual comparison, name three improvements, and reveal the workflow.', cta: 'Save this idea for your next shoot.' },
+    { hook: `3 common mistakes people make with ${value}`, script: `Show one realistic ${value} mistake, explain its impact, and demonstrate a useful correction with a clear example.`, cta: 'Save this checklist.' },
+    { hook: `What most people misunderstand about ${value}`, script: `Challenge one common ${value} myth, explain the practical truth, and support it with a relatable example.`, cta: 'Share this with someone who needs it.' },
+    { hook: `${value}: a practical before-and-after breakdown`, script: `Compare a weak and strong ${value} approach, identify three visible differences, and end with one actionable tip.`, cta: 'Follow for the next breakdown.' },
   ];
+}
+
+function parseCreativeIdeas(raw, niche) {
+  const source = String(raw || '').replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  try {
+    const parsed = JSON.parse(source);
+    const ideas = Array.isArray(parsed) ? parsed : parsed.ideas;
+    if (!Array.isArray(ideas) || ideas.length < 3) return null;
+    return ideas.slice(0, 3).map((idea) => ({ hook: compact(idea.hook, 180), script: compact(idea.script, 700), cta: compact(idea.cta, 140) })).filter((idea) => idea.hook && idea.script && idea.cta);
+  } catch {
+    return null;
+  }
+}
+
+async function generateCreativeText(system, user) {
+  const order = aiConfig.provider === 'groq' ? ['groq', 'gemini', 'openai'] : aiConfig.provider === 'openai' ? ['openai', 'gemini', 'groq'] : ['gemini', 'groq', 'openai'];
+  for (const provider of order) {
+    try {
+      if (provider === 'groq' && aiConfig.groqApiKey) {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${aiConfig.groqApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: aiConfig.groqModel, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 0.75, max_tokens: 1200, response_format: { type: 'json_object' } }) });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.choices?.[0]?.message?.content) return { text: data.choices[0].message.content, provider: 'groq' };
+      }
+      if (provider === 'gemini' && aiConfig.geminiApiKey) {
+        const model = encodeURIComponent(aiConfig.geminiModel || 'gemini-2.5-flash');
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(aiConfig.geminiApiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts: [{ text: user }] }], generationConfig: { temperature: 0.75, maxOutputTokens: 1400, responseMimeType: 'application/json' } }) });
+        const data = await response.json().catch(() => ({}));
+        const text = extractGeminiText(data);
+        if (response.ok && text) return { text, provider: 'gemini' };
+      }
+      if (provider === 'openai' && aiConfig.openaiApiKey) {
+        const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${aiConfig.openaiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: aiConfig.openaiModel, input: [{ role: 'system', content: system }, { role: 'user', content: user }], max_output_tokens: 1000, temperature: 0.75 }) });
+        const data = await response.json().catch(() => ({}));
+        const text = data.output_text || data.output?.flatMap((item) => item.content || []).map((item) => item.text || '').join('') || '';
+        if (response.ok && text) return { text, provider: 'openai' };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function intelligentViralIdeas(niche) {
+  const cleanNiche = cleanText(niche || 'creative business');
+  const system = 'You are a senior social media creative strategist. Understand what the niche actually means before writing. Never assume every niche is a bookable service. A pet is an animal/pet-care topic, fashion is a style industry, while a podcast studio can be booked. Create specific, realistic, useful ideas without nonsense or generic word replacement. Return valid JSON only.';
+  const user = `Create exactly 3 high-quality short-video ideas for the niche: "${cleanNiche}". Each idea must contain hook, script, and cta. Adapt the audience, behavior, vocabulary and action to this exact niche. Return: {"ideas":[{"hook":"...","script":"...","cta":"..."}]}`;
+  const generated = await generateCreativeText(system, user);
+  const ideas = generated ? parseCreativeIdeas(generated.text, cleanNiche) : null;
+  return { niche: cleanNiche, ideas: ideas?.length === 3 ? ideas : viralIdeas(cleanNiche), generatedBy: ideas?.length === 3 ? generated.provider : 'safe-context-fallback' };
 }
 
 function portfolioProjects(service = 'Creative Production') {
@@ -2554,7 +2603,8 @@ async function runSaasFeature(id, input = {}) {
   const now = new Date().toISOString();
   const missing = missingFeatureFields(id, input);
   if (missing.length) return { ok: false, error: `Required fields missing: ${missing.join(', ')}`, missing };
-  const output = featureOutput(id, input, leads, jobs, now);
+  let output = featureOutput(id, input, leads, jobs, now);
+  if (id === 'viral-ideas') output = await intelligentViralIdeas(input.niche || input.service);
   const internalOnly = ['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'voice-proposal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'ceo-report'].includes(id);
   const job = { id: randomUUID(), featureId: id, featureName: feature.name, status: 'approval_required', channel: internalOnly ? 'internal' : 'whatsapp', risk: internalOnly ? 'low' : 'customer_message', input, output: { ...output, message: output.message || automationMessage(id, input), deliveryMode: 'owner_approval', reason: 'Manual run prepared for owner approval.' }, createdAt: now, updatedAt: now, history: [{ action: 'recommended', at: now, actor: input.actor || 'dashboard' }] };
   if (id === 'client-portal') job.output.portalUrl = `${input.baseUrl || 'https://razalead-os-app.vercel.app'}/portal/${input.leadId || job.id}`;
