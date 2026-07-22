@@ -1112,6 +1112,7 @@ function LeadDrawer({ lead, close }) {
                 <p className="mt-3 text-sm text-emerald-400">{saved}</p>
               )}
             </Card>
+            <ProjectWorkspace leadId={form.id} />
             <Card className="mt-4 !shadow-none">
               <p className="text-sm text-slate-500">Requirement</p>
               <p className="mt-2 whitespace-pre-wrap">
@@ -1140,6 +1141,141 @@ function LeadDrawer({ lead, close }) {
         </>
       )}
     </AnimatePresence>
+  );
+}
+
+function ProjectWorkspace({ leadId }) {
+  const [project, setProject] = useState(null);
+  const [status, setStatus] = useState("Loading project workspace...");
+  const load = async () => {
+    try {
+      const data = await api(`/api/projects/${leadId}`);
+      setProject(data.project);
+      setStatus("");
+    } catch (error) {
+      setStatus(error.message);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, [leadId]);
+  const set = (key, value) =>
+    setProject((current) => ({ ...current, [key]: value }));
+  const updateItem = (list, id, key, value) =>
+    set(
+      list,
+      project[list].map((item) =>
+        item.id === id ? { ...item, [key]: value } : item,
+      ),
+    );
+  const addMilestone = () =>
+    set("milestones", [
+      ...(project.milestones || []),
+      { id: crypto.randomUUID(), title: "New milestone", status: "pending", dueDate: "" },
+    ]);
+  const addFile = () =>
+    set("files", [
+      ...(project.files || []),
+      { id: crypto.randomUUID(), title: "New delivery", url: "", type: "link", visibility: "client" },
+    ]);
+  const remove = (list, id) =>
+    set(list, project[list].filter((item) => item.id !== id));
+  const save = async () => {
+    setStatus("Saving...");
+    try {
+      const data = await api(`/api/projects/${leadId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(project),
+      });
+      setProject(data.project);
+      setStatus("Project portal saved.");
+    } catch (error) {
+      setStatus(error.message);
+    }
+  };
+  if (!project)
+    return <Card className="mt-4 !shadow-none text-sm text-slate-400">{status}</Card>;
+  return (
+    <Card className="mt-4 !shadow-none">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase text-orange-400">Client project workspace</p>
+          <h3 className="mt-1 text-lg font-bold">Portal editor</h3>
+        </div>
+        <a className="btn-secondary !h-10 !px-3 no-underline" href={`/portal/${leadId}`} target="_blank" rel="noreferrer">
+          <ExternalLink size={16} /> Preview
+        </a>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className="label">Project title</label>
+          <input className="field" value={project.title || ""} onChange={(e) => set("title", e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Portal status</label>
+          <input className="field" value={project.status || ""} onChange={(e) => set("status", e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Progress %</label>
+          <input className="field" type="number" min="0" max="100" value={project.progress || 0} onChange={(e) => set("progress", e.target.value)} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label">Next delivery</label>
+          <input className="field" value={project.nextDelivery || ""} onChange={(e) => set("nextDelivery", e.target.value)} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label">Client update</label>
+          <textarea className="field min-h-24 py-3" value={project.summary || ""} onChange={(e) => set("summary", e.target.value)} />
+        </div>
+      </div>
+      <div className="mt-5 flex items-center justify-between">
+        <h4 className="font-bold">Milestones</h4>
+        <button className="btn-secondary !h-9 !px-3" onClick={addMilestone}><Plus size={15} /> Add</button>
+      </div>
+      <div className="mt-3 grid gap-3">
+        {(project.milestones || []).map((item) => (
+          <div key={item.id} className="grid gap-2 rounded-lg border border-slate-700 p-3 sm:grid-cols-[1fr_140px_42px]">
+            <input className="field" value={item.title} onChange={(e) => updateItem("milestones", item.id, "title", e.target.value)} />
+            <select className="field" value={item.status} onChange={(e) => updateItem("milestones", item.id, "status", e.target.value)}>
+              <option value="pending">Pending</option><option value="in_progress">In progress</option><option value="completed">Completed</option>
+            </select>
+            <button className="btn-secondary !h-11 !w-11 !p-0 text-red-400" onClick={() => remove("milestones", item.id)}><Trash2 size={16} /></button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 flex items-center justify-between">
+        <h4 className="font-bold">Deliveries & files</h4>
+        <button className="btn-secondary !h-9 !px-3" onClick={addFile}><Plus size={15} /> Add link</button>
+      </div>
+      <p className="mt-1 text-xs text-slate-500">Google Drive, Dropbox, Frame.io ya kisi delivery link ko client portal par share karein.</p>
+      <div className="mt-3 grid gap-3">
+        {(project.files || []).map((item) => (
+          <div key={item.id} className="rounded-lg border border-slate-700 p-3">
+            <div className="grid gap-2 sm:grid-cols-[1fr_42px]">
+              <input className="field" placeholder="File title" value={item.title} onChange={(e) => updateItem("files", item.id, "title", e.target.value)} />
+              <button className="btn-secondary !h-11 !w-11 !p-0 text-red-400" onClick={() => remove("files", item.id)}><Trash2 size={16} /></button>
+            </div>
+            <input className="field mt-2" placeholder="https://drive.google.com/..." value={item.url} onChange={(e) => updateItem("files", item.id, "url", e.target.value)} />
+          </div>
+        ))}
+      </div>
+      {(project.submissions || []).length > 0 && (
+        <div className="mt-5">
+          <h4 className="font-bold">Client submissions</h4>
+          <div className="mt-3 grid gap-2">
+            {project.submissions.map((item) => (
+              <div key={item.id} className="rounded-lg border border-slate-700 p-3 text-sm">
+                <b>{item.name}</b><p className="mt-1 whitespace-pre-wrap text-slate-300">{item.message || "File shared"}</p>
+                {item.url && <a className="mt-2 block text-orange-400" href={item.url} target="_blank" rel="noreferrer">Open submitted file</a>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <button className="btn-primary mt-5 w-full" onClick={save}><Save size={18} /> Save & publish portal</button>
+      {status && <p className="mt-3 text-sm text-emerald-400">{status}</p>}
+    </Card>
   );
 }
 
@@ -1583,6 +1719,7 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
   return (
     <>
       <PageTitle title={title} urdu={urdu} description={fields} />
+      <div className="mb-5"><FeatureBlueprintEditor feature={{ id: featureId, label: title }} notify={notify} /></div>
       <div className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
         <Card>
           <div className="space-y-4">
@@ -1671,6 +1808,35 @@ function FeaturePage({ feature, notify }) {
       fields="One-click automation with permanent CRM job history."
     />
   );
+}
+
+function FeatureBlueprintEditor({ feature, notify }) {
+  const [item, setItem] = useState(null);
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    api("/api/automation-blueprints").then((data) => setItem((data.items || []).find((x) => x.id === feature.id) || null)).catch((error) => notify("Workflow unavailable", error.message, "error"));
+  }, [feature.id]);
+  const save = async () => {
+    try {
+      const data = await api("/api/automation-blueprints", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [item] }) });
+      setItem((data.items || []).find((x) => x.id === feature.id));
+      notify("Workflow saved", `${feature.label} ka trigger aur working rule update ho gaya.`);
+    } catch (error) { notify("Could not save workflow", error.message, "error"); }
+  };
+  if (!item) return <Card><Skeleton className="h-20 w-full" /></Card>;
+  return <Card className="border-orange-500/30">
+    <button className="flex w-full items-center justify-between text-left" onClick={() => setOpen((v) => !v)}>
+      <div><p className="text-xs font-bold uppercase text-orange-400">Editable automation workflow</p><h2 className="mt-1 text-lg font-bold">{feature.label} setup</h2></div>
+      <ChevronRight className={`transition ${open ? "rotate-90" : ""}`} />
+    </button>
+    {open && <div className="mt-5 grid gap-4 sm:grid-cols-2">
+      <label className="flex items-center justify-between rounded-lg border border-slate-700 p-4 sm:col-span-2"><span><b>Workflow enabled</b><small className="mt-1 block text-slate-500">Off karne par automatic jobs create nahi honge.</small></span><input type="checkbox" className="h-5 w-5" checked={item.enabled} onChange={(e) => setItem({ ...item, enabled: e.target.checked })} /></label>
+      <div><label className="label">Execution mode</label><select className="field" value={item.mode} onChange={(e) => setItem({ ...item, mode: e.target.value })}><option value="automatic">Automatic</option><option value="approval">Owner approval first</option><option value="manual">Manual only</option></select></div>
+      <div><label className="label">Trigger</label><input className="field" value={item.trigger || ""} onChange={(e) => setItem({ ...item, trigger: e.target.value })} /></div>
+      <div className="sm:col-span-2"><label className="label">Instructions / business rules</label><textarea className="field min-h-28 py-3" value={item.instructions || ""} onChange={(e) => setItem({ ...item, instructions: e.target.value })} /></div>
+      <button className="btn-primary sm:col-span-2" onClick={save}><Save size={18} /> Save workflow configuration</button>
+    </div>}
+  </Card>;
 }
 
 function MeetingSchedulerPage({ notify }) {
