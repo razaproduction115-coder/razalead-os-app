@@ -1781,6 +1781,7 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
   const config = featureFormConfig[featureId] || { description: fields, fields: [] };
   const [form, setForm] = useState(blankFeatureForm);
   const [result, setResult] = useState(null);
+  const [job, setJob] = useState(null);
   const [busy, setBusy] = useState(false);
   const run = async () => {
     const missing = config.fields.filter(([, , , required]) => required).find(([key]) => !String(form[key] || "").trim());
@@ -1793,10 +1794,30 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
         body: JSON.stringify({ featureId, ...form, baseUrl: location.origin }),
       });
       if (!r.ok) throw new Error(r.error || "Could not generate output");
+      setJob(r.job);
       setResult(r.job.output);
-      notify("Completed", `${title} generated successfully.`);
+      notify("Draft ready", r.job.channel === "whatsapp" ? `${title} ready hai. Review karke Approve & Send karein.` : `${title} generated successfully.`);
     } catch (e) {
       notify("Failed", e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const approveAndSend = async () => {
+    if (!job) return;
+    setBusy(true);
+    try {
+      const response = await api("/api/automations/action", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, action: "approve", message: result?.message || job.output?.message || "" }),
+      });
+      if (!response.ok) throw new Error(response.job?.execution?.error || response.error || "WhatsApp delivery failed");
+      setJob(response.job);
+      setResult(response.job.output);
+      notify("Sent successfully", `${title} WhatsApp par deliver ho gaya.`);
+    } catch (error) {
+      notify("Could not send", error.message, "error");
     } finally {
       setBusy(false);
     }
@@ -1876,6 +1897,13 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
                   Download PDF
                 </a>
               )}
+              {job?.channel === "whatsapp" && (
+                <button className="btn-primary mt-4 w-full" disabled={busy || job.status === "completed"} onClick={approveAndSend}>
+                  {busy ? <Activity className="animate-spin" size={18} /> : <Send size={18} />}
+                  {job.status === "completed" ? "Sent successfully" : "Approve & Send on WhatsApp"}
+                </button>
+              )}
+              {job?.status === "failed" && <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{job.execution?.error || "Delivery failed. Check Meta connection and phone number."}</p>}
             </div>
           ) : (
             <div className="grid min-h-72 place-items-center text-center text-slate-500">
