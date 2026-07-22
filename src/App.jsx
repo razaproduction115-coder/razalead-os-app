@@ -1769,13 +1769,13 @@ const featureFormConfig = {
   "no-show": { description: "Missed meeting ke baad do replacement slots prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["service","Meeting purpose","text"],["meetingAt","Missed meeting time","datetime-local"]] },
   "task-assigner": { description: "Won deal ko production checklist aur team owner assign karein.", fields: [["name","Client name","text",true],["service","Confirmed service","text",true],["assignee","Team / assignee","text"],["notes","Production notes","textarea"]] },
   "ghost-recover": { description: "48-hour unanswered proposal ke liye controlled follow-up banayein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["service","Proposed service","text",true],["proposalAgeHours","Hours since proposal","number"],["offer","Recovery offer","text"]] },
-  referral: { description: "5-star client ke liye referral reward request prepare karein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["reward","Referral reward","text"]] },
+  referral: { description: "Pehle review request bhejein. Review proof verify hone ke baad hi referral reward offer bhejein.", fields: [["name","Client name","text",true],["phone","WhatsApp number","tel",true],["reviewStatus","Review stage","select",true,[["request","Request review first"],["verified","5-star review verified"]]],["reviewUrl","Google review URL","url"],["reviewProof","Review proof / screenshot note","text"],["reward","Referral reward","text"]] },
   "viral-ideas": { description: "Niche ke liye hook, script aur CTA ke sath 3 ideas banayein.", fields: [["niche","Content niche","text",true]] },
   "smart-portfolio": { description: "Lead ki service ke mutabiq 3 relevant portfolio projects select karein.", fields: [["name","Lead name","text",true],["service","Required service / niche","text",true]] },
   "ceo-report": { description: "Live CRM se leads, confirmed revenue, top lead aur pending proposals compile karein.", fields: [] },
 };
 
-const blankFeatureForm = { name:"", phone:"", email:"", service:"Podcast Studio", niche:"Podcast Studio", budget:"", deadline:"", notes:"", reviewUrl:"", inactiveDays:"", offer:"", occasion:"Birthday", deliveryTime:"09:00 Asia/Karachi", meetingAt:"", assignee:"Production Team", proposalAgeHours:"48", reward:"1 free short video" };
+const blankFeatureForm = { name:"", phone:"", email:"", service:"Podcast Studio", niche:"Podcast Studio", budget:"", deadline:"", notes:"", reviewUrl:"", reviewStatus:"request", reviewProof:"", inactiveDays:"", offer:"", occasion:"Birthday", deliveryTime:"09:00 Asia/Karachi", meetingAt:"", assignee:"Production Team", proposalAgeHours:"48", reward:"1 free short video" };
 
 function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
   const config = featureFormConfig[featureId] || { description: fields, fields: [] };
@@ -1829,11 +1829,15 @@ function GeneratorPage({ title, urdu, featureId, button, notify, fields }) {
       <div className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
         <Card>
           <div className="space-y-4">
-            {config.fields.map(([key, label, type = "text", required]) => (
+            {config.fields.map(([key, label, type = "text", required, options]) => (
               <div key={key}>
                 <label className="label">{label}{required ? " *" : ""}</label>
                 {type === "textarea" ? (
                   <textarea className="field min-h-28 py-3" value={form[key] || ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
+                ) : type === "select" ? (
+                  <select className="field" value={form[key] || ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })}>
+                    {(options || []).map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
+                  </select>
                 ) : (
                   <input className="field" type={type} inputMode={type === "tel" ? "tel" : undefined} value={form[key] || ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
                 )}
