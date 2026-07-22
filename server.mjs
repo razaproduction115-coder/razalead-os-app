@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
@@ -2105,8 +2105,13 @@ function pdfEscape(value) {
 }
 
 function createTextPdf(title, sections) {
-  const wrap = (value, limit = 78) => {
-    const words = pdfEscape(value).split(/\s+/).filter(Boolean);
+  const wrap = (value, limit = 72) => {
+    const words = pdfEscape(value).split(/\s+/).filter(Boolean).flatMap((word) => {
+      if (word.length <= limit) return [word];
+      const chunks = [];
+      for (let i = 0; i < word.length; i += limit) chunks.push(word.slice(i, i + limit));
+      return chunks;
+    });
     const lines = [];
     let line = '';
     words.forEach((word) => {
@@ -2118,32 +2123,53 @@ function createTextPdf(title, sections) {
   };
   const logoPath = path.join(__dirname, 'public', 'rp-brand-logo.jpg');
   const logo = existsSync(logoPath) ? readFileSync(logoPath) : null;
-  const commands = [
-    'q', '0.043 0.043 0.039 rg', '0 690 595 152 re f', '1 0.196 0.063 rg', '0 690 9 152 re f', 'Q',
-    ...(logo ? ['q', '154 0 0 79 36 748 cm', '/Logo Do', 'Q'] : []),
-    'BT', '/F2 24 Tf', '1 1 1 rg', '1 0 0 1 212 784 Tm', `(${pdfEscape(title)}) Tj`,
-    '/F1 10 Tf', '0.82 0.78 0.70 rg', '1 0 0 1 212 758 Tm', `(Prepared ${pdfEscape(new Date().toLocaleDateString('en-GB'))}  |  Creative Media & Production) Tj`, 'ET',
-  ];
-  let y = 657;
+  const centerX = (text, size) => Math.max(38, (595 - pdfEscape(text).length * size * 0.52) / 2);
+  const titleLines = wrap(title, 44).slice(0, 2);
+  const pageStreams = [];
+  let commands = [];
+  let y = 0;
+  const startPage = (pageNumber) => {
+    commands = ['q', '0.055 0.055 0.051 rg', '0 650 595 192 re f', '1 0.196 0.063 rg', '0 650 10 192 re f', 'Q'];
+    if (logo) commands.push('q', '154 0 0 79 220.5 754 cm', '/Logo Do', 'Q');
+    commands.push('BT', '/F2 18 Tf', '1 1 1 rg');
+    titleLines.forEach((line, index) => commands.push(`1 0 0 1 ${centerX(line, 18)} ${716 - index * 22} Tm`, `(${line}) Tj`));
+    commands.push('/F1 9 Tf', '0.82 0.78 0.70 rg', `1 0 0 1 ${centerX('CREATIVE MEDIA & PRODUCTION', 9)} 664 Tm`, '(CREATIVE MEDIA & PRODUCTION) Tj', 'ET');
+    y = 622;
+    if (pageNumber > 1) {
+      commands.push('BT', '/F1 8 Tf', '0.35 0.32 0.28 rg', '1 0 0 1 510 655 Tm', `(PAGE ${pageNumber}) Tj`, 'ET');
+    }
+  };
+  const finishPage = (pageNumber) => {
+    commands.push('q', '1 0.196 0.063 rg', '36 36 523 2 re f', 'Q', 'BT', '/F1 8 Tf', '0.25 0.22 0.18 rg', '1 0 0 1 36 21 Tm', `(razaproductions.com  |  ${pdfEscape(business.whatsapp)}) Tj`, `1 0 0 1 518 21 Tm`, `(${pageNumber}) Tj`, 'ET');
+    pageStreams.push(commands.join('\n'));
+  };
+  startPage(1);
   sections.forEach((section, index) => {
     const bodyLines = String(section.body || '').split('\n').flatMap((line) => wrap(line));
-    const blockHeight = 32 + bodyLines.length * 15;
-    if (y - blockHeight < 58) return;
-    commands.push('q', index % 2 ? '0.953 0.929 0.875 rg' : '0.980 0.965 0.929 rg', `36 ${y - blockHeight + 5} 523 ${blockHeight} re f`, 'Q');
-    commands.push('BT', '/F2 9 Tf', '1 0.196 0.063 rg', `1 0 0 1 51 ${y - 17} Tm`, `(${pdfEscape(section.heading).toUpperCase()}) Tj`, 'ET');
-    bodyLines.forEach((line, lineIndex) => commands.push('BT', '/F1 10 Tf', '0.12 0.14 0.17 rg', `1 0 0 1 51 ${y - 37 - lineIndex * 15} Tm`, `(${line}) Tj`, 'ET'));
-    y -= blockHeight + 9;
+    const blockHeight = 44 + bodyLines.length * 15;
+    if (y - blockHeight < 58) {
+      finishPage(pageStreams.length + 1);
+      startPage(pageStreams.length + 1);
+    }
+    commands.push('q', index % 2 ? '0.957 0.941 0.905 rg' : '0.985 0.976 0.948 rg', `36 ${y - blockHeight + 7} 523 ${blockHeight} re f`, '1 0.196 0.063 rg', `36 ${y - blockHeight + 7} 4 ${blockHeight} re f`, 'Q');
+    commands.push('BT', '/F2 10 Tf', '1 0.196 0.063 rg', `1 0 0 1 53 ${y - 19} Tm`, `(${pdfEscape(section.heading).toUpperCase()}) Tj`, 'ET');
+    bodyLines.forEach((line, lineIndex) => commands.push('BT', '/F1 10 Tf', '0.12 0.14 0.17 rg', `1 0 0 1 53 ${y - 42 - lineIndex * 15} Tm`, `(${line}) Tj`, 'ET'));
+    y -= blockHeight + 10;
   });
-  commands.push('q', '1 0.196 0.063 rg', '36 35 523 2 re f', 'Q', 'BT', '/F1 8 Tf', '0.25 0.22 0.18 rg', '1 0 0 1 36 20 Tm', `(razaproductions.com  |  ${pdfEscape(business.whatsapp)}  |  Confidential client document) Tj`, 'ET');
-  const stream = commands.join('\n');
-  const objects = [
-    Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
-    Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
-    Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${logo ? ' /XObject << /Logo 7 0 R >>' : ''} >> /Contents 4 0 R >>`),
-    Buffer.from(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`),
-    Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
-    Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'),
-  ];
+  finishPage(pageStreams.length + 1);
+  const pageCount = pageStreams.length;
+  const fontRegularId = 3 + pageCount * 2;
+  const fontBoldId = fontRegularId + 1;
+  const logoId = fontBoldId + 1;
+  const kids = pageStreams.map((_, index) => `${3 + index * 2} 0 R`).join(' ');
+  const objects = [Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'), Buffer.from(`<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>`)];
+  pageStreams.forEach((stream, index) => {
+    const contentId = 4 + index * 2;
+    objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >>${logo ? ` /XObject << /Logo ${logoId} 0 R >>` : ''} >> /Contents ${contentId} 0 R >>`));
+    objects.push(Buffer.from(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`));
+  });
+  objects.push(Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'));
+  objects.push(Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'));
   if (logo) objects.push(Buffer.concat([
     Buffer.from(`<< /Type /XObject /Subtype /Image /Width 1250 /Height 640 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.length} >>\nstream\n`),
     logo,
@@ -2200,8 +2226,7 @@ function lostLeadMagnetPdf(job) {
     { heading: 'Step 1 - Define The Outcome', body: `Decide what this ${service} project must achieve: awareness, sales, engagement, event coverage or a premium brand presence.` },
     { heading: 'Step 2 - Prepare Your Brief', body: 'Keep your brand references, preferred style, required deliverables, audience and ideal launch date ready. A clear brief reduces revisions and protects the timeline.' },
     { heading: 'Step 3 - Production Checklist', body: `Confirm location, people, products, scripts or talking points, brand assets and approval contact before production begins.` },
-    { heading: 'Recommended Next Step', body: input.offer || `Book a free 15-minute planning call with Raza Productions. We will review your requirement and recommend the right ${service} approach without obligation.` },
-    { heading: 'Book Your Project', body: `${input.bookingUrl || 'https://razaproductions.com/booking/'}\nWhatsApp: ${business.whatsapp}` },
+    { heading: 'Recommended Next Step', body: `${input.offer || `Book a free 15-minute planning call with Raza Productions. We will review your requirement and recommend the right ${service} approach without obligation.`}\nBook: ${input.bookingUrl || 'https://razaproductions.com/booking/'} | WhatsApp: ${business.whatsapp}` },
   ]);
 }
 
@@ -2421,40 +2446,85 @@ function viralIdeas(niche = 'Podcast Studio') {
   ];
 }
 
+const featureRequiredFields = {
+  proposal: ['name', 'phone', 'service'],
+  'content-calendar': ['niche'],
+  'review-collector': ['name', 'phone'],
+  upsell: ['name', 'phone', 'service'],
+  'meeting-scheduler': ['name', 'phone', 'service'],
+  'contract-invoice': ['name', 'service', 'budget'],
+  winback: ['name', 'phone'],
+  'auto-wishes': ['name', 'phone', 'occasion'],
+  'voice-proposal': ['name', 'service', 'notes'],
+  'no-show': ['name', 'phone'],
+  'task-assigner': ['name', 'service'],
+  'ghost-recover': ['name', 'phone', 'service'],
+  referral: ['name', 'phone'],
+  'viral-ideas': ['niche'],
+  'smart-portfolio': ['name', 'service'],
+  'lost-lead': ['name', 'phone', 'service'],
+};
+
+function missingFeatureFields(id, input = {}) {
+  return (featureRequiredFields[id] || []).filter((key) => !cleanText(input[key]));
+}
+
+function featureOutput(id, input, leads, jobs, now) {
+  const name = cleanText(input.name || 'Client');
+  const service = cleanText(input.service || input.niche || 'Creative Production');
+  const phone = cleanText(input.phone);
+  if (id === 'content-calendar') return { calendar: contentCalendar(cleanText(input.niche || 'Podcast Studio')), exportReady: true };
+  if (id === 'viral-ideas') return { niche: service, ideas: viralIdeas(service) };
+  if (id === 'proposal') return { proposal: { client: name, phone, service, budget: cleanText(input.budget || 'Custom quote'), deadline: cleanText(input.deadline || 'After approval'), scope: cleanText(input.notes), brand: business.name, generatedAt: now }, printReady: true };
+  if (id === 'review-collector') return { client: name, sendAfterDays: 3, reviewUrl: cleanText(input.reviewUrl || process.env.GOOGLE_REVIEW_URL || 'https://razaproductions.com'), message: automationMessage(id, input) };
+  if (id === 'upsell') return { client: name, inactiveDays: Number(input.inactiveDays || 60), offer: cleanText(input.offer || '20% off on next package'), message: automationMessage(id, input) };
+  if (id === 'competitor-alert') return { monitoring: true, schedule: 'daily', sources: ['Facebook', 'Instagram', 'YouTube', 'Website'], configuredSources: 0 };
+  if (id === 'ceo-report') {
+    const topLead = [...leads].sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
+    return { report: { leads: leads.length, revenue: leads.filter((lead) => ['won', 'completed'].includes(cleanText(lead.status).toLowerCase())).reduce((sum, lead) => sum + Number(lead.value || 0), 0), topLead: topLead?.name || 'None', pendingProposals: jobs.filter((job) => job.featureId === 'proposal' && job.status !== 'completed').length, generatedAt: now } };
+  }
+  if (id === 'smart-portfolio') return { client: name, niche: service, projects: [1, 2, 3].map((rank) => ({ rank, title: `${service} selected project ${rank}`, url: `${knowledge.portfolioUrl}#${encodeURIComponent(service.toLowerCase())}` })), message: automationMessage(id, input) };
+  if (id === 'meeting-scheduler' || id === 'no-show') return { client: name, slots: [1, 2, 3].slice(0, id === 'no-show' ? 2 : 3).map((days, index) => new Date(Date.now() + days * 86400000 + (12 + index * 2) * 3600000).toISOString()), calendarConnected: Boolean(process.env.GOOGLE_CALENDAR_ID), message: automationMessage(id, input) };
+  if (id === 'contract-invoice') return { client: name, service, amount: Number(String(input.budget || input.value || 0).replace(/[^0-9]/g, '')) || 0, documents: ['contract', 'invoice'], paymentTerms: '50% advance, balance before final delivery' };
+  if (id === 'winback') return { client: name, inactiveDays: Number(input.inactiveDays || 90), offer: cleanText(input.offer || 'Special comeback offer'), message: automationMessage(id, input) };
+  if (id === 'faq-bot') return { active: true, mode: 'knowledge-and-button routing', knowledgeTopics: ['services', 'portfolio', 'podcast booking', 'location', 'payment'], handoffEnabled: true };
+  if (id === 'client-portal') return { client: name, progress: Number(input.progress || 0), milestones: ['Requirement confirmed', 'Production in progress', 'Client review', 'Final delivery'], shareable: true };
+  if (id === 'auto-wishes') return { client: name, occasion: cleanText(input.occasion || 'Birthday'), deliveryTime: cleanText(input.deliveryTime || '09:00 Asia/Karachi'), message: automationMessage(id, input) };
+  if (id === 'voice-proposal') return { client: name, service, transcription: cleanText(input.notes), proposalDraft: { client: name, service, requirement: cleanText(input.notes), budget: cleanText(input.budget || 'To be confirmed') }, readyForReview: true };
+  if (id === 'task-assigner') return { client: name, service, assignee: cleanText(input.assignee || 'Production Team'), tasks: ['Confirm scope', 'Production planning', 'Shoot or recording', 'Edit and quality check', 'Final delivery'] };
+  if (id === 'ghost-recover') return { client: name, proposalAgeHours: Number(input.proposalAgeHours || 48), offer: cleanText(input.offer || '10% off today only'), message: automationMessage(id, input) };
+  if (id === 'referral') return { client: name, reward: cleanText(input.reward || '1 free short video'), eligibility: '5-star review', message: automationMessage(id, input) };
+  if (id === 'lost-lead') return { campaign: 'Lost Lead Recovery', magnetTitle: cleanText(input.magnetTitle || `${service} Project Starter Guide`), offer: cleanText(input.offer || 'Free 15-minute project planning call'), bookingUrl: cleanText(input.bookingUrl || 'https://razaproductions.com/booking/'), generatedAt: now, printReady: true };
+  return { queued: true, mode: 'automation', integrationReady: true };
+}
+
+async function saasSelfAudit() {
+  const leads = await readJson(LEADS, seedLeads);
+  const jobs = await readJson(SAAS_JOBS, []);
+  const sample = { name: 'QA Client', phone: '03000000000', email: 'qa@example.com', service: 'Photography', niche: 'Podcast Studio', budget: '50000', deadline: '30 days', notes: 'Premium agency production requirement', occasion: 'Birthday', reviewUrl: 'https://razaproductions.com', offer: 'Test offer' };
+  const now = new Date().toISOString();
+  const results = saasFeatures.map((feature) => {
+    try {
+      const missing = missingFeatureFields(feature.id, sample);
+      const output = featureOutput(feature.id, sample, leads, jobs, now);
+      const valid = !missing.length && output && Object.keys(output).length > 0;
+      return { id: feature.id, name: feature.name, ok: valid, missing, outputKeys: Object.keys(output || {}) };
+    } catch (error) {
+      return { id: feature.id, name: feature.name, ok: false, error: error.message };
+    }
+  });
+  return { ok: results.every((item) => item.ok), checkedAt: now, passed: results.filter((item) => item.ok).length, total: results.length, results };
+}
+
 async function runSaasFeature(id, input = {}) {
   const feature = saasFeatures.find((item) => item.id === id);
   if (!feature) return { ok: false, error: 'Unknown feature' };
   const leads = await readJson(LEADS, seedLeads);
   const jobs = await readJson(SAAS_JOBS, []);
   const now = new Date().toISOString();
-  let output;
-  if (id === 'content-calendar') output = { calendar: contentCalendar(cleanText(input.niche || 'Podcast Studio')) };
-  else if (id === 'viral-ideas') output = { ideas: viralIdeas(cleanText(input.niche || 'Podcast Studio')) };
-  else if (id === 'proposal') output = {
-    proposal: { client: cleanText(input.name || 'Client'), service: cleanText(input.service || 'Production Services'), budget: cleanText(input.budget || 'Custom quote'), deadline: cleanText(input.deadline || 'After approval'), brand: business.name, generatedAt: now },
-    printReady: true,
-  };
-  else if (id === 'ceo-report') {
-    const topLead = [...leads].sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
-    output = { report: { leads: leads.length, revenue: leads.filter((lead) => ['won', 'completed'].includes(cleanText(lead.status).toLowerCase())).reduce((sum, lead) => sum + Number(lead.value || 0), 0), topLead: topLead?.name || 'None', pendingProposals: jobs.filter((job) => job.featureId === 'proposal' && job.status !== 'completed').length } };
-  } else if (id === 'smart-portfolio') {
-    const niche = cleanText(input.niche || input.service || 'Production');
-    output = { niche, projects: [1, 2, 3].map((rank) => ({ rank, title: `${niche} project ${rank}`, url: `${knowledge.portfolioUrl}#${encodeURIComponent(niche.toLowerCase())}` })) };
-  } else if (id === 'meeting-scheduler' || id === 'no-show') {
-    output = { slots: [1, 2, 3].slice(0, id === 'no-show' ? 2 : 3).map((days, index) => new Date(Date.now() + days * 86400000 + (12 + index * 2) * 3600000).toISOString()), calendarConnected: Boolean(process.env.GOOGLE_CALENDAR_ID) };
-  } else if (id === 'lost-lead') {
-    const service = cleanText(input.service || 'Creative Production');
-    output = {
-      campaign: 'Lost Lead Recovery',
-      magnetTitle: cleanText(input.magnetTitle || `${service} Project Starter Guide`),
-      offer: cleanText(input.offer || 'Free 15-minute project planning call'),
-      bookingUrl: cleanText(input.bookingUrl || 'https://razaproductions.com/booking/'),
-      generatedAt: now,
-      printReady: true,
-    };
-  } else {
-    output = { queued: true, mode: 'automation', message: `${feature.name} job created.`, integrationReady: true };
-  }
+  const missing = missingFeatureFields(id, input);
+  if (missing.length) return { ok: false, error: `Required fields missing: ${missing.join(', ')}`, missing };
+  const output = featureOutput(id, input, leads, jobs, now);
   const internalOnly = ['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'voice-proposal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'smart-portfolio', 'ceo-report'].includes(id);
   const job = { id: randomUUID(), featureId: id, featureName: feature.name, status: 'approval_required', channel: internalOnly ? 'internal' : 'whatsapp', risk: internalOnly ? 'low' : 'customer_message', input, output: { ...output, message: output.message || automationMessage(id, input), deliveryMode: 'owner_approval', reason: 'Manual run prepared for owner approval.' }, createdAt: now, updatedAt: now, history: [{ action: 'recommended', at: now, actor: input.actor || 'dashboard' }] };
   if (id === 'client-portal') job.output.portalUrl = `${input.baseUrl || 'https://razalead-os-app.vercel.app'}/portal/${input.leadId || job.id}`;
@@ -2905,6 +2975,7 @@ export async function appHandler(req, res) {
       if (url.pathname === '/api/audit-log' && req.method === 'GET') return send(res, 200, { items: await readJson(AUDIT_LOG, []) });
       if (url.pathname === '/api/backup' && req.method === 'GET') return send(res, 200, await backupBundle());
       if (url.pathname === '/api/saas/features' && req.method === 'GET') return send(res, 200, await saasOverview());
+      if (url.pathname === '/api/saas/audit' && req.method === 'GET') return send(res, 200, await saasSelfAudit());
       if (url.pathname === '/api/lost-leads/eligible' && req.method === 'GET') return send(res, 200, { items: await lostLeadCandidates() });
       if (url.pathname === '/api/automations/scan' && req.method === 'POST') return send(res, 200, await runAutomationScanner());
       if (url.pathname === '/api/automations/action' && req.method === 'POST') return send(res, 200, await automationAction(await getBody(req)));
@@ -3080,7 +3151,14 @@ export async function appHandler(req, res) {
 
 export default appHandler;
 
-if (!process.env.VERCEL) {
+if (process.argv.includes('--pdf-qa')) {
+  const target = path.join(__dirname, 'tmp', 'pdfs', 'rp-lost-lead-qa.pdf');
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, lostLeadMagnetPdf({ input: { name: 'QA Client', service: 'Photography and Cinematic Production', goal: 'Create a premium multi-location campaign with social reels, product photographs, interviews, brand references, review rounds and final delivery formats for every digital platform.', offer: 'Book a free 15-minute planning call. Our production team will review the complete brief and recommend the right crew, equipment and delivery plan without obligation.', bookingUrl: 'https://razaproductions.com/booking/' } }));
+  console.log(target);
+} else if (process.argv.includes('--saas-audit')) {
+  console.log(JSON.stringify(await saasSelfAudit(), null, 2));
+} else if (!process.env.VERCEL) {
   http.createServer(appHandler).listen(PORT, () => {
     console.log(`RazaLead OS running at http://localhost:${PORT}`);
   });
