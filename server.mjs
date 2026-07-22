@@ -1821,17 +1821,20 @@ async function manualReply(input) {
       : type === 'contact'
         ? `Contact: ${input.contactName} ${input.contactPhone}`
       : `${type.toUpperCase()}: ${mediaUrl || input.mediaId || 'uploaded media'}${text ? `\n${text}` : ''}`;
-  session.transcript.push({
-    role: 'human',
-    text: displayText,
-    at: new Date().toISOString(),
-    type,
-    mediaUrl,
-    mediaId: cleanText(input.mediaId || ''),
-  });
-  session.lastHumanAt = new Date().toISOString();
-  session.updatedAt = new Date().toISOString();
   const delivery = await sendWhatsAppPayload(phone, whatsappManualPayload(input));
+  if (delivery.sent) {
+    session.transcript.push({
+      role: 'human',
+      text: displayText,
+      at: new Date().toISOString(),
+      type,
+      mediaUrl,
+      mediaId: cleanText(input.mediaId || ''),
+      deliveryStatus: 'sent',
+    });
+    session.lastHumanAt = new Date().toISOString();
+    session.updatedAt = new Date().toISOString();
+  }
   const learned = type === 'text' ? await learnFromHumanReply(phone, text) : null;
   if (learned) {
     session.needsHuman = false;
@@ -1842,7 +1845,7 @@ async function manualReply(input) {
   sessions[phone] = session;
   await writeJson(SESSIONS, sessions);
   await audit('message.manual_sent', { actor: input.actor, phone, messageType: type, delivered: Boolean(delivery.sent) });
-  return { ok: true, delivery, session: publicSession(session) };
+  return { ok: Boolean(delivery.sent), error: delivery.sent ? '' : (delivery.response?.error?.message || delivery.reason || 'WhatsApp delivery failed'), delivery, session: publicSession(session) };
 }
 
 async function graphGet(pathname) {
