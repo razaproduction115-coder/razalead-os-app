@@ -1491,33 +1491,38 @@ function whatsappManualPayload(input) {
   const contactName = compact(input.contactName || '', 200);
   const contactPhone = normalizeWhatsAppNumber(input.contactPhone || '');
 
+  const withReplyContext = (payload) => {
+    const replyToMessageId = cleanText(input.replyToMessageId || '');
+    return replyToMessageId ? { ...payload, context: { message_id: replyToMessageId } } : payload;
+  };
+
   if (type === 'audio' && cleanText(input.mediaId || '')) {
-    return { type: 'audio', audio: { id: cleanText(input.mediaId) } };
+    return withReplyContext({ type: 'audio', audio: { id: cleanText(input.mediaId) } });
   }
   if (type === 'image' && cleanText(input.mediaId || '')) {
-    return { type: 'image', image: { id: cleanText(input.mediaId), caption: compact(text, 1024) } };
+    return withReplyContext({ type: 'image', image: { id: cleanText(input.mediaId), caption: compact(text, 1024) } });
   }
   if (type === 'video' && cleanText(input.mediaId || '')) {
-    return { type: 'video', video: { id: cleanText(input.mediaId), caption: compact(text, 1024) } };
+    return withReplyContext({ type: 'video', video: { id: cleanText(input.mediaId), caption: compact(text, 1024) } });
   }
   if (type === 'document' && cleanText(input.mediaId || '')) {
-    return { type: 'document', document: { id: cleanText(input.mediaId), filename, caption: compact(text, 1024) } };
+    return withReplyContext({ type: 'document', document: { id: cleanText(input.mediaId), filename, caption: compact(text, 1024) } });
   }
 
   if (type === 'image' && mediaUrl) {
-    return { type: 'image', image: { link: mediaUrl, caption: compact(text, 1024) } };
+    return withReplyContext({ type: 'image', image: { link: mediaUrl, caption: compact(text, 1024) } });
   }
   if (type === 'video' && mediaUrl) {
-    return { type: 'video', video: { link: mediaUrl, caption: compact(text, 1024) } };
+    return withReplyContext({ type: 'video', video: { link: mediaUrl, caption: compact(text, 1024) } });
   }
   if (type === 'audio' && mediaUrl) {
-    return { type: 'audio', audio: { link: mediaUrl } };
+    return withReplyContext({ type: 'audio', audio: { link: mediaUrl } });
   }
   if (type === 'document' && mediaUrl) {
-    return { type: 'document', document: { link: mediaUrl, filename, caption: compact(text, 1024) } };
+    return withReplyContext({ type: 'document', document: { link: mediaUrl, filename, caption: compact(text, 1024) } });
   }
   if (type === 'location' && Number.isFinite(lat) && Number.isFinite(lng)) {
-    return {
+    return withReplyContext({
       type: 'location',
       location: {
         latitude: lat,
@@ -1525,21 +1530,21 @@ function whatsappManualPayload(input) {
         name: locationName,
         address,
       },
-    };
+    });
   }
   if (type === 'contact' && contactName && contactPhone) {
-    return {
+    return withReplyContext({
       type: 'contacts',
       contacts: [{
         name: { formatted_name: contactName, first_name: contactName },
         phones: [{ phone: `+${contactPhone}`, wa_id: contactPhone, type: 'WORK' }],
       }],
-    };
+    });
   }
-  return {
+  return withReplyContext({
     type: 'text',
     text: { preview_url: true, body: text || 'Raza Productions' },
-  };
+  });
 }
 
 async function runDueFollowups() {
@@ -1650,6 +1655,8 @@ function extractWhatsAppInbound(payload) {
     type: messageType,
     mediaId: payload.mediaId || media.id || '',
     mimeType: payload.mimeType || media.mime_type || '',
+    messageId: payload.messageId || message?.id || '',
+    replyToMessageId: payload.replyToMessageId || message?.context?.id || '',
     text:
       payload.text ||
       payload.message ||
@@ -1673,7 +1680,7 @@ async function botTurn(payload) {
   session.name = cleanText(payload.name || session.name || phone);
   const text = cleanText(payload.text || payload.message || payload.intent || 'start');
   const response = await answerQuestionSmart(text, payload.intent, kb, session);
-  session.transcript.push({ role: 'user', text, at: new Date().toISOString(), type: payload.type || 'text', mediaId: payload.mediaId || '', mimeType: payload.mimeType || '', mediaUrl: payload.mediaId ? `/api/whatsapp/media/${encodeURIComponent(payload.mediaId)}` : '' });
+  session.transcript.push({ role: 'user', text, at: new Date().toISOString(), type: payload.type || 'text', mediaId: payload.mediaId || '', mimeType: payload.mimeType || '', mediaUrl: payload.mediaId ? `/api/whatsapp/media/${encodeURIComponent(payload.mediaId)}` : '', messageId: cleanText(payload.messageId || ''), replyToMessageId: cleanText(payload.replyToMessageId || '') });
   session.transcript.push({ role: 'bot', text: response.text, buttons: response.buttons, at: new Date().toISOString() });
   session.lastInboundAt = new Date().toISOString();
   session.lastBotAt = new Date().toISOString();
@@ -1746,6 +1753,8 @@ async function receiveHumanVisibleMessage(payload) {
     mediaId: payload.mediaId || '',
     mimeType: payload.mimeType || '',
     mediaUrl: payload.mediaId ? `/api/whatsapp/media/${encodeURIComponent(payload.mediaId)}` : '',
+    messageId: cleanText(payload.messageId || ''),
+    replyToMessageId: cleanText(payload.replyToMessageId || ''),
   });
   if (['audio', 'voice', 'image', 'video', 'document'].includes(cleanText(payload.type).toLowerCase())) {
     session.needsHuman = true;
@@ -1824,6 +1833,9 @@ async function manualReply(input) {
       : `${type.toUpperCase()}: ${mediaUrl || input.mediaId || 'uploaded media'}${text ? `\n${text}` : ''}`;
   const delivery = await sendWhatsAppPayload(phone, whatsappManualPayload(input));
   if (delivery.sent) {
+    const replyTarget = cleanText(input.replyToMessageId || '')
+      ? session.transcript.find((item) => cleanText(item.messageId || '') === cleanText(input.replyToMessageId || ''))
+      : null;
     session.transcript.push({
       role: 'human',
       text: displayText,
@@ -1832,6 +1844,10 @@ async function manualReply(input) {
       mediaUrl,
       mediaId: cleanText(input.mediaId || ''),
       deliveryStatus: 'sent',
+      messageId: cleanText(delivery.response?.messages?.[0]?.id || ''),
+      replyToMessageId: cleanText(input.replyToMessageId || ''),
+      replyToText: compact(replyTarget?.text || input.replyToText || '', 280),
+      replyToRole: cleanText(replyTarget?.role || input.replyToRole || ''),
     });
     session.lastHumanAt = new Date().toISOString();
     session.updatedAt = new Date().toISOString();
@@ -3185,11 +3201,11 @@ export async function appHandler(req, res) {
           const existing = sessions[cleanText(inbound.from)];
           const transcription = await transcribeWhatsAppAudio(inbound.mediaId);
           if (existing?.botPaused || !transcription.ok) {
-            const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: transcription.ok ? transcription.text : inbound.text, type: inbound.type, mediaId: inbound.mediaId, mimeType: inbound.mimeType, source: 'WhatsApp' });
+            const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: transcription.ok ? transcription.text : inbound.text, type: inbound.type, mediaId: inbound.mediaId, mimeType: inbound.mimeType, messageId: inbound.messageId, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
             const delivery = existing?.botPaused ? { sent: false, reason: 'Bot paused by operator' } : await sendWhatsAppText(inbound.from, 'Aapka audio receive ho gaya hai. Hamari team sun kar aapko personally reply karegi.');
             return send(res, 200, { ok: true, mode: 'audio_human_review', transcription, session: publicSession(session), delivery });
           }
-          const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: transcription.text, type: inbound.type, mediaId: inbound.mediaId, mimeType: inbound.mimeType, source: 'WhatsApp' });
+          const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: transcription.text, type: inbound.type, mediaId: inbound.mediaId, mimeType: inbound.mimeType, messageId: inbound.messageId, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
           const delivery = await sendWhatsAppText(inbound.from, turn.reply.text, turn.reply.buttons);
           return send(res, 200, { ok: true, mode: 'audio_ai_reply', transcription, turn, delivery });
         }
@@ -3201,6 +3217,8 @@ export async function appHandler(req, res) {
             type: inbound.type,
             mediaId: inbound.mediaId,
             mimeType: inbound.mimeType,
+            messageId: inbound.messageId,
+            replyToMessageId: inbound.replyToMessageId,
             source: 'WhatsApp',
           });
           const mediaLabel = inbound.type === 'image' ? 'image' : inbound.type === 'video' ? 'video' : inbound.type === 'document' ? 'document' : 'audio message';
@@ -3210,10 +3228,10 @@ export async function appHandler(req, res) {
         const sessions = await readJson(SESSIONS, {});
         const existing = sessions[cleanText(inbound.from)];
         if (existing?.botPaused) {
-          const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: inbound.text, source: 'WhatsApp' });
+          const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: inbound.text, messageId: inbound.messageId, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
           return send(res, 200, { ok: true, mode: 'human_takeover', session: publicSession(session), delivery: { sent: false, reason: 'Bot paused by operator' } });
         }
-        const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: inbound.text, intent: inbound.intent, source: 'WhatsApp' });
+        const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: inbound.text, intent: inbound.intent, messageId: inbound.messageId, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
         const delivery = await sendWhatsAppText(inbound.from, turn.reply.text, turn.reply.buttons);
         return send(res, 200, { ok: true, turn, delivery });
       }
