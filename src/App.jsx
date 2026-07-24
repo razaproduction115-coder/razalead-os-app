@@ -25,6 +25,7 @@ import {
   Paperclip,
   PlayCircle,
   Plus,
+  Reply,
   Pencil,
   Save,
   Search,
@@ -3366,6 +3367,54 @@ function ToastStack({ toasts }) {
   );
 }
 
+const karachiDateParts = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { key: "", day: "", time: "" };
+  const key = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const yesterday = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(Date.now() - 86400000));
+  return {
+    key,
+    day:
+      key === today
+        ? "Today"
+        : key === yesterday
+          ? "Yesterday"
+          : new Intl.DateTimeFormat("en-PK", {
+              timeZone: "Asia/Karachi",
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            }).format(date),
+    time: new Intl.DateTimeFormat("en-PK", {
+      timeZone: "Asia/Karachi",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date),
+  };
+};
+
+const chatListTime = (value) => {
+  const parts = karachiDateParts(value);
+  return parts.day === "Today" ? parts.time : parts.day;
+};
+
 function InboxPage({ notify }) {
   const [sessions, setSessions] = useState([]),
     [phone, setPhone] = useState(""),
@@ -3375,6 +3424,7 @@ function InboxPage({ notify }) {
     [search, setSearch] = useState(""),
     [attachOpen, setAttachOpen] = useState(false),
     [recording, setRecording] = useState(false),
+    [replyingTo, setReplyingTo] = useState(null),
     [detailsOpen, setDetailsOpen] = useState(false),
     [contact, setContact] = useState({ name: "", phone: "" });
   const recorderRef = useRef(null),
@@ -3468,7 +3518,15 @@ function InboxPage({ notify }) {
         body: JSON.stringify({
           phone: active.phone,
           type: "text",
-          text: message,
+          text:
+            replyingTo && !replyingTo.messageId
+              ? `Replying to: "${replyingTo.text}"
+
+${message}`
+              : message,
+          replyToMessageId: replyingTo?.messageId || "",
+          replyToText: replyingTo?.text || "",
+          replyToRole: replyingTo?.role || "",
         }),
       });
       if (!r.delivery?.sent)
@@ -3476,6 +3534,7 @@ function InboxPage({ notify }) {
           r.delivery?.response?.error?.message || "WhatsApp delivery failed",
         );
       setMessage("");
+      setReplyingTo(null);
       await load();
       notify("Message sent", "Human reply delivered.");
     } catch (e) {
@@ -3755,13 +3814,19 @@ function InboxPage({ notify }) {
             {visibleSessions.map((item) => (
               <button
                 key={item.phone}
-                onClick={() => setPhone(item.phone)}
+                onClick={() => {
+                  setPhone(item.phone);
+                  setReplyingTo(null);
+                }}
                 className={`w-full border-b border-slate-800 p-4 text-left ${active?.phone === item.phone ? "bg-emerald-500/10" : "hover:bg-slate-800/60"}`}
               >
                 <div className="flex items-center gap-2">
                   <b className="min-w-0 flex-1 truncate text-sm">
                     {item.name || item.phone}
                   </b>
+                  <span className="shrink-0 text-[10px] text-slate-500">
+                    {chatListTime(item.updatedAt)}
+                  </span>
                   <span
                     className={`rounded-full px-2 py-1 text-[10px] font-black ${item.leadLabel === "Hot" ? "bg-red-500/15 text-red-300" : item.leadLabel === "Warm" ? "bg-amber-500/15 text-amber-300" : "bg-slate-700 text-slate-300"}`}
                   >
@@ -3848,20 +3913,69 @@ function InboxPage({ notify }) {
                 />
               )}
               <div className="flex-1 space-y-3 overflow-y-auto bg-slate-950/30 p-4">
-                {(active.transcript || []).map((item, i) => (
-                  <div
-                    key={`${item.at}-${i}`}
-                    className={`flex ${item.role === "user" ? "justify-start" : "justify-end"}`}
-                  >
-                    <div
-                      className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[72%] ${item.role === "user" ? "bg-slate-800" : item.role === "human" ? "bg-emerald-500 text-slate-950" : "bg-cyan-500/15 text-cyan-100"}`}
-                    >
-                      <MessageAttachment item={item} />
-                    </div>
-                  </div>
-                ))}
+                {(active.transcript || []).map((item, i, transcript) => {
+                  const stamp = karachiDateParts(item.at);
+                  const previousStamp = karachiDateParts(transcript[i - 1]?.at);
+                  return (
+                    <React.Fragment key={`${item.at}-${i}`}>
+                      {stamp.key && stamp.key !== previousStamp.key && (
+                        <div className="flex justify-center py-2">
+                          <span className="rounded-full border border-slate-700 bg-slate-900/90 px-3 py-1 text-[11px] font-bold text-slate-400 shadow-sm">
+                            {stamp.day}
+                          </span>
+                        </div>
+                      )}
+                      <div className={`group flex ${item.role === "user" ? "justify-start" : "justify-end"}`}>
+                        <div className={`flex max-w-[92%] items-end gap-1 sm:max-w-[76%] ${item.role === "user" ? "flex-row" : "flex-row-reverse"}`}>
+                          <div className={`rounded-2xl px-4 py-3 text-sm ${item.role === "user" ? "rounded-tl-sm bg-slate-800" : item.role === "human" ? "rounded-tr-sm bg-emerald-500 text-slate-950" : "rounded-tr-sm bg-cyan-500/15 text-cyan-100"}`}>
+                            {item.replyToText && (
+                              <div className={`mb-2 border-l-2 px-3 py-2 text-xs ${item.role === "human" ? "border-slate-900/50 bg-slate-950/10" : "border-emerald-400 bg-slate-950/30"}`}>
+                                <b>{item.replyToRole === "user" ? active.name || active.phone : "Raza Productions"}</b>
+                                <p className="mt-1 line-clamp-2 opacity-75">{item.replyToText}</p>
+                              </div>
+                            )}
+                            <MessageAttachment item={item} />
+                            <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${item.role === "human" ? "text-slate-900/65" : "text-slate-400"}`}>
+                              <span>{stamp.time || "Time unavailable"}</span>
+                              {item.deliveryStatus === "sent" && <span aria-label="sent">✓</span>}
+                            </div>
+                          </div>
+                          {item.role !== "system" && (
+                            <button
+                              type="button"
+                              title={`Reply to ${item.role === "user" ? active.name || "customer" : "this message"}`}
+                              aria-label="Reply to this message"
+                              onClick={() => setReplyingTo({
+                                messageId: item.messageId || "",
+                                text: item.text || `${item.type || "Media"} message`,
+                                role: item.role,
+                              })}
+                              className="mb-1 grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-500 opacity-100 transition hover:bg-slate-800 hover:text-emerald-300 sm:opacity-0 sm:group-hover:opacity-100"
+                            >
+                              <Reply size={15} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
               </div>
               <div className="border-t border-slate-700 p-4">
+                {replyingTo && (
+                  <div className="mb-3 flex items-start gap-3 rounded-xl border-l-4 border-emerald-500 bg-slate-900 px-4 py-3">
+                    <Reply className="mt-0.5 shrink-0 text-emerald-400" size={17} />
+                    <div className="min-w-0 flex-1">
+                      <b className="text-xs text-emerald-300">
+                        Replying to {replyingTo.role === "user" ? active.name || active.phone : "Raza Productions"}
+                      </b>
+                      <p className="mt-1 truncate text-xs text-slate-400">{replyingTo.text}</p>
+                    </div>
+                    <button type="button" title="Cancel reply" className="text-slate-500 hover:text-white" onClick={() => setReplyingTo(null)}>
+                      <X size={17} />
+                    </button>
+                  </div>
+                )}
                 {attachOpen && (
                   <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900 p-3">
                     <div className="grid gap-2 sm:grid-cols-2">
