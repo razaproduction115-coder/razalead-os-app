@@ -833,7 +833,7 @@ function Dashboard({ data, loading, navigate }) {
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <MiniStat
-              label="Average score"
+              label="All-time average score"
               value={`${data.analytics.averageScore || 0}/100`}
             />
             <MiniStat
@@ -845,9 +845,11 @@ function Dashboard({ data, loading, navigate }) {
               value={`PKR ${confirmedRevenue.toLocaleString()}`}
             />
           </div>
+          <ScoreTrend days={data.analytics.last7Days || []} />
           <div className="mt-5 rounded-2xl border border-slate-700 bg-slate-950/40 p-4 text-sm text-slate-300">
-            Revenue includes only Won or Completed deals. Lead budgets remain
-            estimates until a deal is confirmed.
+            Daily scores are calculated from leads received on each date. The
+            all-time score above changes only when lead quality changes.
+            Revenue includes only Won or Completed deals.
           </div>
         </Card>
         <Card>
@@ -880,6 +882,70 @@ function MiniStat({ label, value }) {
     <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
       <p className="text-xs text-slate-500">{label}</p>
       <p className="mt-2 text-xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function ScoreTrend({ days }) {
+  const width = 640;
+  const height = 150;
+  const padding = 18;
+  const rows = days.length ? days : Array.from({ length: 7 }, (_, index) => ({
+    date: new Date(Date.now() - (6 - index) * 86400000).toISOString().slice(0, 10),
+    averageScore: 0,
+    leads: 0,
+  }));
+  const points = rows.map((day, index) => {
+    const x = padding + (index * (width - padding * 2)) / Math.max(1, rows.length - 1);
+    const y = height - padding - (Number(day.averageScore || 0) / 100) * (height - padding * 2);
+    return { ...day, x, y };
+  });
+  const path = points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
+  return (
+    <div className="mt-5 rounded-2xl border border-slate-700 bg-slate-950/55 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-bold">7-day lead quality</p>
+          <p className="text-xs text-slate-500">Daily average score and lead volume</p>
+        </div>
+        <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-300">
+          Live
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full" role="img" aria-label="Seven day lead score trend">
+        {[0, 25, 50, 75, 100].map((score) => {
+          const y = height - padding - (score / 100) * (height - padding * 2);
+          return (
+            <g key={score}>
+              <line x1={padding} x2={width - padding} y1={y} y2={y} stroke="#334155" strokeWidth="1" />
+              <text x={padding} y={y - 4} fill="#64748b" fontSize="10">{score}</text>
+            </g>
+          );
+        })}
+        <motion.path
+          d={path}
+          fill="none"
+          stroke="#22c55e"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 0.9, ease: "easeOut" }}
+        />
+        {points.map((point) => (
+          <g key={point.date}>
+            <circle cx={point.x} cy={point.y} r="5" fill="#0f172a" stroke="#22c55e" strokeWidth="3" />
+            <text x={point.x} y={height - 2} textAnchor="middle" fill="#94a3b8" fontSize="10">
+              {new Date(`${point.date}T00:00:00`).toLocaleDateString("en-PK", { weekday: "short" })}
+            </text>
+            <title>{`${point.date}: ${point.averageScore || 0}/100 from ${point.leads || 0} leads`}</title>
+          </g>
+        ))}
+      </svg>
+      <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-slate-500">
+        {rows.map((day) => <span key={day.date}>{day.leads || 0} leads</span>)}
+      </div>
     </div>
   );
 }
