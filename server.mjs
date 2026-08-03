@@ -40,6 +40,8 @@ const SALES_PASSWORD_HASH = process.env.APP_SALES_PASSWORD_HASH || '4ca99e7b5530
 const loginAttempts = new Map();
 const DATABASE_URL = process.env.RAZA_NEXT_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 let databasePromise = null;
+let opportunisticCyclePromise = null;
+let lastOpportunisticCycleAt = 0;
 const stateCache = new Map();
 const STATE_CACHE_TTL_MS = Number(process.env.STATE_CACHE_TTL_MS || 30000);
 let approvedTemplateCache = { expiresAt: 0, items: [], error: '' };
@@ -81,7 +83,7 @@ const saasFeatures = [
   ['contract-invoice', 'Contract + Invoice', 'Create contract and invoice records when a deal is won.'],
   ['winback', 'AI Winback', 'Queue weekly outreach for clients inactive for 90 days.'],
   ['faq-bot', 'AI FAQ Bot 24/7', 'Manage WhatsApp answers for pricing, timing and location.'],
-  ['client-portal', 'Client Portal', 'Create an OTP-protected client progress portal.'],
+  ['client-portal', 'Client Portal', 'Create a signed private client progress portal.'],
   ['auto-wishes', 'Auto Wishes', 'Queue birthday and Eid WhatsApp wishes for 9am.'],
   ['voice-proposal', 'Voice to Proposal', 'Prepare voice-note transcription and proposal generation.'],
   ['no-show', 'No Show Rescue', 'Queue two replacement slots five minutes after a missed meeting.'],
@@ -2271,6 +2273,7 @@ async function manualReply(input) {
   const type = cleanText(input.type || 'text').toLowerCase();
   const text = compact(input.text || input.caption || '', 3900);
   const mediaUrl = cleanText(input.mediaUrl || input.url || '');
+  const transcriptMediaUrl = mediaUrl || (cleanText(input.mediaId || '') ? `/api/whatsapp/media/${encodeURIComponent(cleanText(input.mediaId))}` : '');
   const hasLocation = Number.isFinite(Number(input.latitude)) && Number.isFinite(Number(input.longitude));
   if (!phone) return { ok: false, error: 'phone required' };
   if (type === 'text' && !text) return { ok: false, error: 'message text required' };
@@ -2883,12 +2886,29 @@ async function automationBlueprints(input) {
   return next;
 }
 
-function portalHtml(lead, project) {
+function portalAccessToken(leadId) {
+  return createHmac('sha256', AUTH_SECRET).update(`portal:${cleanText(leadId)}`).digest('hex');
+}
+
+function validPortalAccessToken(leadId, token) {
+  const expected = portalAccessToken(leadId);
+  const actual = cleanText(token);
+  if (!actual || actual.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+}
+
+function portalUrl(leadId, baseUrl = '') {
+  const id = cleanText(leadId);
+  const base = cleanText(baseUrl).replace(/\/$/, '');
+  return `${base}/portal/${encodeURIComponent(id)}?token=${portalAccessToken(id)}`;
+}
+
+function portalHtml(lead, project, token) {
   const progress = Math.max(0, Math.min(100, Number(project.progress || lead.progress || 0)));
   const safe = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
   const milestones = (project.milestones || []).map((item) => `<li class="milestone ${safe(item.status)}"><span></span><div><b>${safe(item.title)}</b><small>${safe(item.status.replace('_',' '))}${item.dueDate ? ` · ${safe(item.dueDate)}` : ''}</small></div></li>`).join('');
   const files = (project.files || []).filter((item) => item.visibility !== 'team').map((item) => `<a class="file" href="${safe(item.url)}" target="_blank" rel="noreferrer"><b>${safe(item.title)}</b><small>${safe(item.type || 'file')}</small></a>`).join('') || '<p class="muted">No client files shared yet.</p>';
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raza Productions Client Portal</title><style>*{box-sizing:border-box}body{margin:0;background:#0d0d0c;color:#f7f0e5;font:15px Arial,sans-serif}.wrap{max-width:980px;margin:auto;padding:24px 16px 48px}.head{display:flex;align-items:center;justify-content:space-between;gap:16px}.logo{width:170px;max-width:45vw;background:#eee6d8;padding:6px}.pill{padding:8px 11px;background:#ff32101c;color:#ff5a3b;border:1px solid #ff321044;font-weight:700}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.card{margin-top:18px;border:1px solid #38332d;background:#191817;padding:22px}.muted,small{color:#aaa197}.bar{height:14px;background:#302d28;overflow:hidden}.bar span{display:block;height:100%;width:${progress}%;background:#ff3210}.milestones{list-style:none;padding:0}.milestone{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid #302d28}.milestone>span{width:12px;height:12px;margin-top:3px;border-radius:50%;background:#514b43}.milestone.completed>span{background:#22c55e}.milestone.in_progress>span{background:#ff3210}.milestone small,.file small{display:block;margin-top:5px;text-transform:capitalize}.file{display:block;color:#f7f0e5;text-decoration:none;border:1px solid #39342e;padding:13px;margin-top:9px}.field{width:100%;padding:13px;margin-top:10px;background:#0e0e0d;color:#fff;border:1px solid #484139}.btn{width:100%;padding:13px;margin-top:10px;background:#ff3210;color:#fff;border:0;font-weight:800}@media(max-width:720px){.grid{grid-template-columns:1fr}.head{align-items:flex-start;flex-direction:column}}</style></head><body><main class="wrap"><header class="head"><img class="logo" src="/rp-brand-logo.jpg" alt="Raza Productions"><span class="pill">${safe(project.status || lead.status || 'In progress')}</span></header><h1>${safe(project.title || lead.service || 'Client Project')}</h1><p class="muted">Welcome ${safe(lead.name || 'Client')}. Track progress, open deliveries and send feedback here.</p><section class="card"><h3>Project progress: ${progress}%</h3><div class="bar"><span></span></div><p>${safe(project.summary || 'Our team will keep this portal updated as work moves forward.')}</p><b>Next delivery</b><p class="muted">${safe(project.nextDelivery || 'Team will confirm the next delivery date.')}</p></section><div class="grid"><section class="card"><h2>Project milestones</h2><ul class="milestones">${milestones}</ul></section><section class="card"><h2>Files & deliveries</h2>${files}</section></div><section class="card"><h2>Send feedback or files</h2><input id="name" class="field" placeholder="Your name"><textarea id="message" class="field" rows="4" placeholder="Feedback, changes or approval note"></textarea><input id="url" class="field" placeholder="Google Drive / Dropbox file link (optional)"><button class="btn" onclick="submitFeedback()">Submit to Raza Productions</button><p id="result" class="muted"></p></section></main><script>async function submitFeedback(){const result=document.getElementById('result'),nameField=document.getElementById('name'),messageField=document.getElementById('message'),urlField=document.getElementById('url');if(!messageField.value.trim()&&!urlField.value.trim()){result.textContent='Please add feedback or a file link.';return;}result.textContent='Submitting...';const r=await fetch('/api/projects/${encodeURIComponent(lead.id)}/submissions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:nameField.value,message:messageField.value,url:urlField.value})});result.textContent=r.ok?'Thank you. Your submission is saved and the team has been notified.':'Could not submit. Please try again.';if(r.ok){messageField.value='';urlField.value='';}}</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raza Productions Client Portal</title><style>*{box-sizing:border-box}body{margin:0;background:#0d0d0c;color:#f7f0e5;font:15px Arial,sans-serif}.wrap{max-width:980px;margin:auto;padding:24px 16px 48px}.head{display:flex;align-items:center;justify-content:space-between;gap:16px}.logo{width:170px;max-width:45vw;background:#eee6d8;padding:6px}.pill{padding:8px 11px;background:#ff32101c;color:#ff5a3b;border:1px solid #ff321044;font-weight:700}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.card{margin-top:18px;border:1px solid #38332d;background:#191817;padding:22px}.muted,small{color:#aaa197}.bar{height:14px;background:#302d28;overflow:hidden}.bar span{display:block;height:100%;width:${progress}%;background:#ff3210}.milestones{list-style:none;padding:0}.milestone{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid #302d28}.milestone>span{width:12px;height:12px;margin-top:3px;border-radius:50%;background:#514b43}.milestone.completed>span{background:#22c55e}.milestone.in_progress>span{background:#ff3210}.milestone small,.file small{display:block;margin-top:5px;text-transform:capitalize}.file{display:block;color:#f7f0e5;text-decoration:none;border:1px solid #39342e;padding:13px;margin-top:9px}.field{width:100%;padding:13px;margin-top:10px;background:#0e0e0d;color:#fff;border:1px solid #484139}.btn{width:100%;padding:13px;margin-top:10px;background:#ff3210;color:#fff;border:0;font-weight:800}@media(max-width:720px){.grid{grid-template-columns:1fr}.head{align-items:flex-start;flex-direction:column}}</style></head><body><main class="wrap"><header class="head"><img class="logo" src="/rp-brand-logo.jpg" alt="Raza Productions"><span class="pill">${safe(project.status || lead.status || 'In progress')}</span></header><h1>${safe(project.title || lead.service || 'Client Project')}</h1><p class="muted">Welcome ${safe(lead.name || 'Client')}. Track progress, open deliveries and send feedback here.</p><section class="card"><h3>Project progress: ${progress}%</h3><div class="bar"><span></span></div><p>${safe(project.summary || 'Our team will keep this portal updated as work moves forward.')}</p><b>Next delivery</b><p class="muted">${safe(project.nextDelivery || 'Team will confirm the next delivery date.')}</p></section><div class="grid"><section class="card"><h2>Project milestones</h2><ul class="milestones">${milestones}</ul></section><section class="card"><h2>Files & deliveries</h2>${files}</section></div><section class="card"><h2>Send feedback or files</h2><input id="name" class="field" placeholder="Your name"><textarea id="message" class="field" rows="4" placeholder="Feedback, changes or approval note"></textarea><input id="url" class="field" placeholder="Google Drive / Dropbox file link (optional)"><button class="btn" onclick="submitFeedback()">Submit to Raza Productions</button><p id="result" class="muted"></p></section></main><script>async function submitFeedback(){const result=document.getElementById('result'),nameField=document.getElementById('name'),messageField=document.getElementById('message'),urlField=document.getElementById('url');if(!messageField.value.trim()&&!urlField.value.trim()){result.textContent='Please add feedback or a file link.';return;}result.textContent='Submitting...';const r=await fetch('/api/portal/${encodeURIComponent(lead.id)}/submissions?token=${encodeURIComponent(token)}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:nameField.value,message:messageField.value,url:urlField.value})});result.textContent=r.ok?'Thank you. Your submission is saved and the team has been notified.':'Could not submit. Please try again.';if(r.ok){messageField.value='';urlField.value='';}}</script></body></html>`;
 }
 
 async function widgetTurn(input) {
@@ -3100,6 +3120,9 @@ function featureOutput(id, input, leads, jobs, now) {
 async function saasSelfAudit() {
   const leads = await readJson(LEADS, seedLeads);
   const jobs = await readJson(SAAS_JOBS, []);
+  const followups = await readJson(FOLLOWUPS, []);
+  const meta = await getMetaConfig();
+  const settings = await automationSettings();
   const sample = { name: 'QA Client', phone: '03000000000', email: 'qa@example.com', service: 'Photography', niche: 'Podcast Studio', budget: '50000', deadline: '30 days', notes: 'Premium agency production requirement', occasion: 'Birthday', reviewUrl: 'https://razaproductions.com', offer: 'Test offer' };
   const now = new Date().toISOString();
   const results = saasFeatures.map((feature) => {
@@ -3112,7 +3135,45 @@ async function saasSelfAudit() {
       return { id: feature.id, name: feature.name, ok: false, error: error.message };
     }
   });
-  return { ok: results.every((item) => item.ok), checkedAt: now, passed: results.filter((item) => item.ok).length, total: results.length, results };
+  const queue = {
+    approvalRequired: jobs.filter((item) => item.status === 'approval_required').length,
+    scheduled: jobs.filter((item) => item.status === 'scheduled').length,
+    readyAuto: jobs.filter((item) => item.status === 'ready_auto').length,
+    failed: jobs.filter((item) => item.status === 'failed').length,
+  };
+  const followupHealth = {
+    total: followups.length,
+    scheduled: followups.filter((item) => item.status === 'scheduled').length,
+    due: (await dueFollowups()).length,
+    sent: followups.filter((item) => item.status === 'sent').length,
+    processing: followups.filter((item) => item.status === 'processing').length,
+    needsTemplate: followups.filter((item) => item.status === 'needs_template').length,
+    needsTokenOrRetry: followups.filter((item) => item.status === 'needs_token_or_retry').length,
+    failed: followups.filter((item) => item.status === 'failed').length,
+  };
+  const blockers = [];
+  if (!DATABASE_URL && process.env.VERCEL) blockers.push('Persistent database is not configured.');
+  if (!meta.accessToken || !meta.phoneNumberId || !meta.wabaId) blockers.push('WhatsApp Cloud API connection is incomplete.');
+  if (!settings.whatsappEnabled) blockers.push('WhatsApp automation is disabled.');
+  if (followupHealth.needsTemplate) blockers.push(`${followupHealth.needsTemplate} follow-up(s) need an approved Meta template outside the 24-hour window.`);
+  if (followupHealth.needsTokenOrRetry) blockers.push(`${followupHealth.needsTokenOrRetry} follow-up(s) are waiting for token recovery or retry.`);
+  if (followupHealth.failed) blockers.push(`${followupHealth.failed} follow-up(s) exhausted their retry attempts.`);
+  if (queue.failed) blockers.push(`${queue.failed} automation job(s) failed and need owner review.`);
+  return {
+    ok: results.every((item) => item.ok) && blockers.length === 0,
+    checkedAt: now,
+    passed: results.filter((item) => item.ok).length,
+    total: results.length,
+    results,
+    operational: {
+      storage: DATABASE_URL ? 'persistent_postgres' : process.env.VERCEL ? 'temporary_vercel' : 'local_json',
+      whatsappConnected: Boolean(meta.accessToken && meta.phoneNumberId && meta.wabaId),
+      scheduler: 'daily Vercel cron plus 5-minute traffic-assisted cycles',
+      queue,
+      followups: followupHealth,
+      blockers,
+    },
+  };
 }
 
 async function runSaasFeature(id, input = {}) {
@@ -3127,7 +3188,7 @@ async function runSaasFeature(id, input = {}) {
   if (id === 'viral-ideas') output = await intelligentViralIdeas(input.niche || input.service);
   const internalOnly = ['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'voice-proposal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'ceo-report'].includes(id);
   const job = { id: randomUUID(), featureId: id, featureName: feature.name, status: 'approval_required', channel: internalOnly ? 'internal' : 'whatsapp', risk: internalOnly ? 'low' : 'customer_message', input, output: { ...output, message: output.message || automationMessage(id, input), deliveryMode: 'owner_approval', reason: 'Manual run prepared for owner approval.' }, createdAt: now, updatedAt: now, history: [{ action: 'recommended', at: now, actor: input.actor || 'dashboard' }] };
-  if (id === 'client-portal') job.output.portalUrl = `${input.baseUrl || 'https://razalead-os-app.vercel.app'}/portal/${input.leadId || job.id}`;
+  if (id === 'client-portal') job.output.portalUrl = portalUrl(input.leadId || job.id, input.baseUrl || 'https://razalead-os-app.vercel.app');
   if (id === 'proposal') job.output.downloadUrl = `/api/saas/jobs/${job.id}/proposal.pdf`;
   if (id === 'lost-lead') job.output.downloadUrl = `/api/saas/jobs/${job.id}/lead-magnet.pdf`;
   if (id === 'contract-invoice') {
@@ -3196,7 +3257,7 @@ async function queueAutomationJob(jobs, featureId, lead, reason, dueAt = new Dat
     output: { reason, dueAt, message, deliveryMode: blueprint?.mode === 'automatic' ? 'automatic' : 'owner_approval', instructions: blueprint?.instructions || '', preview: automationPreview(featureId, lead) },
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: [{ action: 'recommended', at: new Date().toISOString(), actor: 'Raza AI' }],
   };
-  if (featureId === 'client-portal') job.output.portalUrl = `/portal/${lead.id}`;
+  if (featureId === 'client-portal') job.output.portalUrl = portalUrl(lead.id);
   if (featureId === 'proposal') job.output.downloadUrl = `/api/saas/jobs/${job.id}/proposal.pdf`;
   if (featureId === 'lost-lead') {
     job.output.downloadUrl = `/api/saas/jobs/${job.id}/lead-magnet.pdf`;
@@ -3240,7 +3301,7 @@ function automationPreview(featureId, lead = {}) {
   if (featureId === 'task-assigner') return { tasks: ['Client confirmation', 'Production planning', 'Shoot/recording', 'Edit and QA', 'Final delivery'] };
   if (featureId === 'viral-ideas') return { ideas: viralIdeas(lead.service || 'Podcast Studio') };
   if (featureId === 'smart-portfolio') return { portfolio: process.env.PORTFOLIO_URL || 'https://razaproductions.com', niche: lead.service || 'Production' };
-  if (featureId === 'client-portal') return { portalPath: `/portal/${lead.id}`, progress: Number(lead.progress || 0) };
+  if (featureId === 'client-portal') return { portalPath: portalUrl(lead.id), progress: Number(lead.progress || 0) };
   if (featureId === 'lost-lead') return { magnetTitle: `${cleanText(lead.service || 'Creative Production')} Project Starter Guide`, format: 'Branded PDF', delivery: 'WhatsApp document + Book Now CTA', bookingUrl: 'https://razaproductions.com/booking/' };
   if (featureId === 'faq-bot') return { active: true, knowledgeTopics: ['services', 'portfolio', 'podcast booking', 'location', 'payment'] };
   return { lead: lead.name, service: lead.service };
@@ -3271,6 +3332,7 @@ async function executeAutomationJob(job) {
           caption: compact(job.output.message, 1024),
         },
       });
+      if (delivery.sent) await recordOutboundMessage({ phone: job.input.phone, text: job.output.message, type: 'document', delivery });
       return { ok: delivery.sent, delivery, documentUrl, error: delivery.sent ? '' : (delivery.response?.error?.message || delivery.reason || 'Proposal PDF delivery failed') };
     }
     if (job.featureId === 'lost-lead' && job.output?.downloadUrl) {
@@ -3289,6 +3351,10 @@ async function executeAutomationJob(job) {
         { id: 'lost_lead_book_now', label: 'Book Now' },
         { id: 'lost_lead_human_help', label: 'Talk to Team' },
       ]);
+      if (ctaDelivery.sent) {
+        await recordOutboundMessage({ phone: job.input.phone, text: job.output.message, type: 'document', delivery: documentDelivery });
+        await recordOutboundMessage({ phone: job.input.phone, text: 'Ready to restart your project? Select an option below.', delivery: ctaDelivery });
+      }
       return { ok: ctaDelivery.sent, documentDelivery, ctaDelivery, documentUrl, error: ctaDelivery.sent ? '' : (ctaDelivery.response?.error?.message || ctaDelivery.reason || 'Book Now CTA delivery failed') };
     }
     if (['meeting-scheduler', 'no-show'].includes(job.featureId)) {
@@ -3296,9 +3362,11 @@ async function executeAutomationJob(job) {
       if (!slots.length) return { ok: false, error: 'Meeting slots are missing' };
       const buttons = slots.map((slot) => ({ id: `meeting_slot_${new Date(slot).getTime()}`, label: meetingSlotLabel(slot) }));
       const delivery = await sendWhatsAppText(job.input.phone, job.output.message, buttons);
+      if (delivery.sent) await recordOutboundMessage({ phone: job.input.phone, text: job.output.message, delivery });
       return { ok: delivery.sent, delivery, slots, error: delivery.sent ? '' : (delivery.response?.error?.message || delivery.reason || 'Meeting slots delivery failed') };
     }
     const delivery = await sendWhatsAppText(job.input.phone, job.output.message);
+    if (delivery.sent) await recordOutboundMessage({ phone: job.input.phone, text: job.output.message, delivery });
     return { ok: delivery.sent, delivery, error: delivery.sent ? '' : (delivery.response?.error?.message || delivery.reason || 'WhatsApp delivery failed') };
   }
   const input = job.input || {};
@@ -3309,7 +3377,7 @@ async function executeAutomationJob(job) {
   else if (featureId === 'meeting-scheduler' || featureId === 'no-show') result = { slots: job.output?.preview?.slots || [], calendarConnected: Boolean(process.env.GOOGLE_CALENDAR_ID), booking: 'Awaiting selected slot' };
   else if (featureId === 'smart-portfolio') result = { portfolio: process.env.PORTFOLIO_URL || knowledge.portfolioUrl, niche: input.service || 'Production' };
   else if (featureId === 'faq-bot') result = { active: true, knowledgeTopics: knowledge.faqs?.length || 0, mode: 'button-and-FAQ routing' };
-  else if (featureId === 'client-portal') result = { portalUrl: job.output?.portalUrl || `/portal/${input.leadId || input.id || 'client'}`, progress: 0, access: 'Shareable client portal link ready' };
+  else if (featureId === 'client-portal') result = { portalUrl: job.output?.portalUrl || portalUrl(input.leadId || input.id || 'client'), progress: 0, access: 'Signed private client portal link ready' };
   else if (featureId === 'contract-invoice') result = { documents: [{ name: 'Contract PDF', url: job.output?.contractUrl }, { name: 'Invoice PDF', url: job.output?.invoiceUrl }], client: input.name || 'Client', amount: Number(input.value || input.budget || 0), status: 'generated' };
   else if (featureId === 'task-assigner') result = { tasks: ['Client confirmation', 'Production planning', 'Shoot/recording', 'Edit and QA', 'Final delivery'], status: 'ready for team assignment' };
   else if (featureId === 'competitor-alert') result = await checkCompetitors();
@@ -3366,12 +3434,37 @@ async function runScheduledAutomationJobs() {
   const due = jobs.filter((job) => job.status === 'scheduled' && new Date(job.output?.dueAt || 0).getTime() <= Date.now());
   const results = [];
   for (const job of due) {
-    job.status = 'approval_required';
+    if (job.blueprintMode === 'automatic') {
+      job.status = 'processing';
+      job.execution = await executeAutomationJob(job);
+      job.status = job.execution.ok ? 'completed' : 'failed';
+      job.completedAt = job.execution.ok ? new Date().toISOString() : null;
+    } else {
+      job.status = 'approval_required';
+    }
     job.updatedAt = new Date().toISOString();
-    job.history = [...(job.history || []), { action: 'due_for_approval', at: job.updatedAt, actor: 'Raza AI' }];
+    job.history = [...(job.history || []), { action: job.blueprintMode === 'automatic' ? 'scheduled_auto_execution' : 'due_for_approval', at: job.updatedAt, actor: 'Raza AI' }];
     results.push({ id: job.id, status: job.status });
   }
   await writeJson(SAAS_JOBS, jobs);
+  return results;
+}
+
+async function runReadyAutomationJobs(limit = 20) {
+  const jobs = await readJson(SAAS_JOBS, []);
+  const ready = jobs.filter((job) => job.status === 'ready_auto').slice(0, Math.max(1, Math.min(50, Number(limit) || 20)));
+  const results = [];
+  for (const job of ready) {
+    job.status = 'processing';
+    job.updatedAt = new Date().toISOString();
+    job.execution = await executeAutomationJob(job);
+    job.status = job.execution.ok ? 'completed' : 'failed';
+    job.completedAt = job.execution.ok ? new Date().toISOString() : null;
+    job.updatedAt = new Date().toISOString();
+    job.history = [...(job.history || []), { action: 'automatic_execution', at: job.updatedAt, actor: 'Raza AI' }];
+    results.push({ id: job.id, status: job.status, error: job.execution.error || '' });
+  }
+  if (ready.length) await writeJson(SAAS_JOBS, jobs.slice(0, 5000));
   return results;
 }
 
@@ -3435,12 +3528,26 @@ async function runAutomationScanner() {
 
 async function runAutomationCycle() {
   const scan = await runAutomationScanner();
+  const automaticJobs = await runReadyAutomationJobs();
   const followups = await runDueFollowups();
-  return { ok: true, checkedAt: new Date().toISOString(), scan, followups };
+  return { ok: true, checkedAt: new Date().toISOString(), scan, automaticJobs, followups };
+}
+
+async function runOpportunisticAutomationCycle(intervalMs = 5 * 60 * 1000) {
+  if (opportunisticCyclePromise) return opportunisticCyclePromise;
+  if (Date.now() - lastOpportunisticCycleAt < intervalMs) return { skipped: true, reason: 'cycle_throttled' };
+  lastOpportunisticCycleAt = Date.now();
+  opportunisticCyclePromise = runAutomationCycle()
+    .catch((error) => ({ ok: false, error: cleanText(error?.message || 'Automation cycle failed') }))
+    .finally(() => { opportunisticCyclePromise = null; });
+  return opportunisticCyclePromise;
 }
 
 async function saasOverview() {
   const jobs = await readJson(SAAS_JOBS, []);
+  const [meta, competitors] = await Promise.all([getMetaConfig(), getCompetitors()]);
+  const hasAi = Boolean(aiConfig.geminiApiKey || aiConfig.groqApiKey || aiConfig.openaiApiKey);
+  const hasCalendar = Boolean(process.env.GOOGLE_CALENDAR_ID);
   let migrated = false;
   for (const job of jobs) {
     if (job.status === 'queued') {
@@ -3452,10 +3559,25 @@ async function saasOverview() {
       job.history = [...(job.history || []), { action: 'migrated_to_approval_queue', at: job.updatedAt, actor: 'Raza OS' }];
       migrated = true;
     }
+    if (job.featureId === 'client-portal' && job.input?.leadId && !String(job.output?.portalUrl || '').includes('token=')) {
+      job.output = { ...(job.output || {}), portalUrl: portalUrl(job.input.leadId, job.input.baseUrl || '') };
+      job.updatedAt = new Date().toISOString();
+      job.history = [...(job.history || []), { action: 'portal_link_secured', at: job.updatedAt, actor: 'Raza OS' }];
+      migrated = true;
+    }
   }
   if (migrated) await writeJson(SAAS_JOBS, jobs);
+  const readiness = (featureId) => {
+    if (['review-collector', 'upsell', 'winback', 'auto-wishes', 'no-show', 'ghost-recover', 'referral', 'lost-lead'].includes(featureId) && !meta.accessToken) return { state: 'setup_required', limitation: 'WhatsApp Cloud API token is missing.' };
+    if (featureId === 'meeting-scheduler' && !hasCalendar) return { state: 'limited', limitation: 'WhatsApp slot selection works; Google Calendar event creation needs GOOGLE_CALENDAR_ID and credentials.' };
+    if (featureId === 'competitor-alert') return competitors.length ? { state: 'limited', limitation: 'Sources are stored and checked, but new-post discovery still needs platform APIs.' } : { state: 'setup_required', limitation: 'Add competitor sources; platform API access is needed for automatic new-post discovery.' };
+    if (featureId === 'voice-proposal' && !hasAi) return { state: 'setup_required', limitation: 'Voice transcription needs Gemini, Groq, or OpenAI credentials.' };
+    if (featureId === 'task-assigner') return { state: 'limited', limitation: 'Tasks are created inside CRM; WhatsApp group delivery is not connected.' };
+    if (featureId === 'client-portal') return { state: 'ready', limitation: 'Uses a signed private link. Keep the link private.' };
+    return { state: 'ready', limitation: '' };
+  };
   return {
-    features: saasFeatures.map((feature) => ({ ...feature, runs: jobs.filter((job) => job.featureId === feature.id).length })),
+    features: saasFeatures.map((feature) => ({ ...feature, runs: jobs.filter((job) => job.featureId === feature.id).length, readiness: readiness(feature.id) })),
     jobs: jobs.slice(0, 250),
     queue: {
       approvalRequired: jobs.filter((job) => job.status === 'approval_required').length,
@@ -3465,11 +3587,12 @@ async function saasOverview() {
     },
     settings: await automationSettings(),
     integrations: {
-      whatsapp: Boolean((await getMetaConfig()).accessToken),
-      openai: Boolean(aiConfig.openaiApiKey),
-      googleCalendar: Boolean(process.env.GOOGLE_CALENDAR_ID),
+      whatsapp: Boolean(meta.accessToken && meta.phoneNumberId && meta.wabaId),
+      ai: hasAi,
+      aiProvider: aiConfig.provider || (aiConfig.geminiApiKey ? 'gemini' : aiConfig.groqApiKey ? 'groq' : aiConfig.openaiApiKey ? 'openai' : 'none'),
+      googleCalendar: hasCalendar,
       youtube: Boolean(process.env.YOUTUBE_API_KEY),
-      competitorSources: (await getCompetitors()).length,
+      competitorSources: competitors.length,
       persistentStorage: Boolean(DATABASE_URL) || !process.env.VERCEL,
     },
   };
@@ -3485,11 +3608,14 @@ export async function appHandler(req, res) {
       }
       const portalMatch = url.pathname.match(/^\/portal\/([^/]+)$/);
       if (portalMatch && req.method === 'GET') {
+        const leadId = decodeURIComponent(portalMatch[1]);
+        const token = url.searchParams.get('token') || '';
+        if (!validPortalAccessToken(leadId, token)) return send(res, 403, 'This client portal link is invalid or incomplete.', 'text/plain');
         const leads = await readJson(LEADS, seedLeads);
-        const lead = leads.find((item) => item.id === decodeURIComponent(portalMatch[1]));
+        const lead = leads.find((item) => item.id === leadId);
         if (!lead) return send(res, 404, 'Client portal not found', 'text/plain');
         const project = await getProject(lead.id);
-        return send(res, 200, portalHtml(lead, project), 'text/html');
+        return send(res, 200, portalHtml(lead, project, token), 'text/html');
       }
       if (url.pathname.startsWith('/assets/')) {
         const assetName = path.basename(url.pathname);
@@ -3568,12 +3694,14 @@ export async function appHandler(req, res) {
       if (url.pathname === '/api/notifications/pulse' && req.method === 'GET') {
         const [leads, sessions] = await Promise.all([readJson(LEADS, seedLeads), memoryList()]);
         const latestMessageAt = sessions.map((item) => item.updatedAt || item.lastMessageAt || '').filter(Boolean).sort().at(-1) || '';
-        const followupResults = await runDueFollowups(3);
+        const cycle = await runOpportunisticAutomationCycle();
+        const followupResults = Array.isArray(cycle?.followups) ? cycle.followups : [];
         return send(res, 200, {
           leads: leads.length,
           conversations: sessions.length,
           latestMessageAt,
           followupsProcessed: followupResults.filter((item) => item?.delivery?.sent).length,
+          automationCycle: cycle?.skipped ? 'throttled' : cycle?.ok === false ? 'failed' : 'completed',
           checkedAt: new Date().toISOString(),
         });
       }
@@ -3697,6 +3825,13 @@ export async function appHandler(req, res) {
         const submission = await addProjectSubmission(decodeURIComponent(projectSubmissionMatch[1]), await getBody(req));
         return submission ? send(res, 200, { ok: true, submission }) : send(res, 404, { error: 'Client project not found' });
       }
+      const portalSubmissionMatch = url.pathname.match(/^\/api\/portal\/([^/]+)\/submissions$/);
+      if (portalSubmissionMatch && req.method === 'POST') {
+        const leadId = decodeURIComponent(portalSubmissionMatch[1]);
+        if (!validPortalAccessToken(leadId, url.searchParams.get('token') || '')) return send(res, 403, { error: 'Invalid client portal token' });
+        const submission = await addProjectSubmission(leadId, await getBody(req));
+        return submission ? send(res, 200, { ok: true, submission }) : send(res, 404, { error: 'Client project not found' });
+      }
       const leadUpdateMatch = url.pathname.match(/^\/api\/leads\/([^/]+)$/);
       if (leadUpdateMatch && req.method === 'POST') {
         const leads = await readJson(LEADS, seedLeads);
@@ -3792,7 +3927,8 @@ export async function appHandler(req, res) {
         const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: inbound.text, intent: inbound.intent, messageId: inbound.messageId, messageAt: inbound.messageAt, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
         const delivery = await sendWhatsAppText(inbound.from, turn.reply.text, turn.reply.buttons);
         await recordOutboundMessage({ phone: inbound.from, text: turn.reply.text, delivery });
-        return send(res, 200, { ok: true, turn, delivery });
+        const automationCycle = await runOpportunisticAutomationCycle();
+        return send(res, 200, { ok: true, turn, delivery, automationCycle: automationCycle?.skipped ? 'throttled' : automationCycle?.ok === false ? 'failed' : 'completed' });
       }
       if (url.pathname === '/webhooks/meta' && req.method === 'POST') return send(res, 200, await addLead(await getBody(req), 'Meta'));
       if (url.pathname === '/api/website-lead' && req.method === 'POST') return send(res, 200, await addLead(await getBody(req), 'Website'));
@@ -3812,15 +3948,19 @@ export async function appHandler(req, res) {
 
 export default appHandler;
 
-if (process.argv.includes('--pdf-qa')) {
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMainModule && process.argv.includes('--pdf-qa')) {
   const target = path.join(__dirname, 'tmp', 'pdfs', 'rp-lost-lead-qa.pdf');
   mkdirSync(path.dirname(target), { recursive: true });
   writeFileSync(target, lostLeadMagnetPdf({ input: { name: 'QA Client', service: 'Photography and Cinematic Production', goal: 'Create a premium multi-location campaign with social reels, product photographs, interviews, brand references, review rounds and final delivery formats for every digital platform.', offer: 'Book a free 15-minute planning call. Our production team will review the complete brief and recommend the right crew, equipment and delivery plan without obligation.', bookingUrl: 'https://razaproductions.com/booking/' } }));
   console.log(target);
-} else if (process.argv.includes('--saas-audit')) {
+} else if (isMainModule && process.argv.includes('--saas-audit')) {
   console.log(JSON.stringify(await saasSelfAudit(), null, 2));
-} else if (!process.env.VERCEL) {
+} else if (isMainModule && !process.env.VERCEL) {
   http.createServer(appHandler).listen(PORT, () => {
     console.log(`RazaLead OS running at http://localhost:${PORT}`);
   });
 }
+
+export { followupPlanForDelay, followupPlanForScore, portalAccessToken, validPortalAccessToken };
