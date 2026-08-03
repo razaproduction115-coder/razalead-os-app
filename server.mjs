@@ -3,7 +3,13 @@ import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import {
+  countTemplateBodyParameters,
+  isWithinCustomerServiceWindow,
+  normalizeMediaMimeType,
+  normalizeWhatsAppTimestamp,
+} from './lib/whatsapp-utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'razalead-data') : path.join(__dirname, 'data');
@@ -26,10 +32,16 @@ const COMPETITORS = path.join(DATA_DIR, 'competitors.json');
 const PROJECTS = path.join(DATA_DIR, 'projects.json');
 const AUTOMATION_BLUEPRINTS = path.join(DATA_DIR, 'automation-blueprints.json');
 const PORT = Number(process.env.PORT || 4317);
+const SESSION_COOKIE = 'razalead_session';
+const SESSION_TTL_SECONDS = 8 * 60 * 60;
+const AUTH_SECRET = process.env.AUTH_SECRET || process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_VERIFY_TOKEN || 'razalead-local-development-only';
+const OWNER_PASSWORD_HASH = process.env.APP_OWNER_PASSWORD_HASH || '895257631f181d748fcb0013aee89a82ebd0eeb6c259d18e40dff3a748f9e888';
+const loginAttempts = new Map();
 const DATABASE_URL = process.env.RAZA_NEXT_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 let databasePromise = null;
 const stateCache = new Map();
 const STATE_CACHE_TTL_MS = Number(process.env.STATE_CACHE_TTL_MS || 30000);
+let approvedTemplateCache = { expiresAt: 0, items: [], error: '' };
 
 const business = {
   name: process.env.BUSINESS_NAME || 'Raza Productions',
@@ -255,6 +267,70 @@ function addDaysIso(days, start = Date.now()) {
 
 function hashSecret(value) {
   return createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+function safeEqual(left, right) {
+  const a = Buffer.from(String(left || ''));
+  const b = Buffer.from(String(right || ''));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function base64Url(value) {
+  return Buffer.from(value).toString('base64url');
+}
+
+function signSession(user) {
+  const payload = base64Url(JSON.stringify({
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    name: user.name,
+    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+    nonce: randomUUID(),
+  }));
+  const signature = createHmac('sha256', AUTH_SECRET).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function verifySession(token) {
+  try {
+    const [payload, signature] = String(token || '').split('.');
+    if (!payload || !signature) return null;
+    const expected = createHmac('sha256', AUTH_SECRET).update(payload).digest('base64url');
+    if (!safeEqual(signature, expected)) return null;
+    const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!session.exp || session.exp <= Math.floor(Date.now() / 1000)) return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function cookies(req) {
+  return Object.fromEntries(String(req.headers.cookie || '').split(';').map((item) => item.trim()).filter(Boolean).map((item) => {
+    const index = item.indexOf('=');
+    return index < 0 ? [item, ''] : [item.slice(0, index), decodeURIComponent(item.slice(index + 1))];
+  }));
+}
+
+function currentSession(req) {
+  return verifySession(cookies(req)[SESSION_COOKIE]);
+}
+
+function sessionCookie(token, maxAge = SESSION_TTL_SECONDS) {
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${process.env.VERCEL ? '; Secure' : ''}`;
+}
+
+function loginRateLimited(req) {
+  const key = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
+  const now = Date.now();
+  const current = loginAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    loginAttempts.set(key, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return false;
+  }
+  current.count += 1;
+  return current.count > 8;
 }
 
 async function database() {
@@ -613,8 +689,8 @@ function headers(type = 'application/json') {
   };
 }
 
-function send(res, code, body, type = 'application/json') {
-  res.writeHead(code, headers(type));
+function send(res, code, body, type = 'application/json', extraHeaders = {}) {
+  res.writeHead(code, { ...headers(type), ...extraHeaders });
   res.end(type === 'application/json' ? JSON.stringify(body) : body);
 }
 
@@ -1359,6 +1435,7 @@ function followupPlanForDelay(delayMinutes, createdAt) {
 }
 
 function followupMessage(item) {
+  if (cleanText(item.message || '')) return compact(item.message, 3900);
   if (item.messageType === 'booking_help') {
     return `Assalam o Alaikum ${item.name || ''}, Raza Productions se follow-up. Aap ${item.service || 'service'} ke liye booking/quote continue karna chahenge? Preferred date aur budget send kar dein.`;
   }
@@ -1377,7 +1454,7 @@ async function scheduleFollowups(lead) {
   const items = followupPlanForScore(lead.score, lead.createdAt).map((step, index) => followupItemFromLead(lead, step, index));
   const activeKeys = new Set(
     list
-      .filter((item) => ['scheduled', 'needs_token_or_retry'].includes(item.status))
+      .filter((item) => ['scheduled', 'needs_token_or_retry', 'needs_template'].includes(item.status))
       .map((item) => `${item.phone}|${item.leadId}|${item.stage}`),
   );
   const freshItems = items.filter((item) => !activeKeys.has(`${item.phone}|${item.leadId}|${item.stage}`));
@@ -1407,8 +1484,10 @@ function followupItemFromLead(lead, step, index = 0) {
 async function scheduleCustomFollowup(input) {
   const list = await readJson(FOLLOWUPS, []);
   const createdAt = new Date().toISOString();
-  const phone = cleanText(input.phone || '');
-  if (!phone) return [];
+  const phone = normalizeWhatsAppNumber(input.phone || '');
+  if (!phone || phone.length < 10 || phone.length > 15) {
+    throw new Error('Enter a valid WhatsApp number with country code, for example 923001234567.');
+  }
   const lead = {
     id: input.leadId || `L-${Date.now()}`,
     name: cleanText(input.name || phone || 'Follow-up lead'),
@@ -1420,10 +1499,11 @@ async function scheduleCustomFollowup(input) {
   const items = followupPlanForDelay(input.delayMinutes, createdAt).map((step, index) => ({
     ...followupItemFromLead(lead, step, index),
     createdAt,
+    message: compact(input.message || '', 3900),
   }));
   const duplicateKeys = new Set(
     list
-      .filter((item) => item.status === 'scheduled')
+      .filter((item) => ['scheduled', 'needs_token_or_retry', 'needs_template'].includes(item.status))
       .map((item) => `${item.phone}|${item.stage}|${item.messageType}`),
   );
   const freshItems = items.filter((item) => !duplicateKeys.has(`${item.phone}|${item.stage}|${item.messageType}`));
@@ -1434,7 +1514,18 @@ async function scheduleCustomFollowup(input) {
 async function dueFollowups() {
   const now = Date.now();
   const list = await readJson(FOLLOWUPS, []);
-  return list.filter((item) => item.status === 'scheduled' && new Date(item.dueAt).getTime() <= now);
+  return list.filter((item) => {
+    if (item.status === 'scheduled') {
+      return new Date(item.dueAt).getTime() <= now;
+    }
+    if (['needs_token_or_retry', 'needs_template'].includes(item.status)) {
+      return (
+        new Date(item.nextAttemptAt || item.dueAt).getTime() <= now &&
+        Number(item.attempts || 0) < 5
+      );
+    }
+    return false;
+  });
 }
 
 function whatsappButtonPayload(to, text, buttons = []) {
@@ -1491,6 +1582,206 @@ async function sendWhatsAppText(to, text, buttons = []) {
   return sendWhatsAppPayload(to, whatsappButtonPayload(normalizeWhatsAppNumber(to), text, buttons));
 }
 
+async function approvedWhatsAppTemplates(force = false) {
+  const now = Date.now();
+  if (!force && approvedTemplateCache.expiresAt > now) {
+    return {
+      ok: !approvedTemplateCache.error,
+      items: approvedTemplateCache.items,
+      error: approvedTemplateCache.error,
+      cached: true,
+    };
+  }
+  const meta = await getMetaConfig();
+  if (!meta.accessToken || !meta.wabaId) {
+    return { ok: false, items: [], error: 'Meta WABA ID or access token is missing' };
+  }
+  const fields = 'id,name,status,language,category,components';
+  const url = `https://graph.facebook.com/${meta.graphVersion}/${meta.wabaId}/message_templates?status=APPROVED&limit=100&fields=${encodeURIComponent(fields)}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${meta.accessToken}` },
+  });
+  const result = await response.json().catch(() => ({}));
+  const items = response.ok && Array.isArray(result.data)
+    ? result.data.filter((template) => template.status === 'APPROVED')
+    : [];
+  const error = response.ok ? '' : result.error?.message || 'Could not load approved Meta templates';
+  approvedTemplateCache = {
+    items,
+    error,
+    expiresAt: now + 5 * 60 * 1000,
+  };
+  return { ok: response.ok, items, error, cached: false };
+}
+
+function followupTemplateValues(item) {
+  return [
+    cleanText(item.name || 'Customer'),
+    cleanText(item.service || 'your inquiry'),
+    business.name,
+    knowledge.portfolioUrl,
+  ];
+}
+
+async function resolveFollowupTemplate(item) {
+  const result = await approvedWhatsAppTemplates();
+  if (!result.ok) return { ok: false, error: result.error };
+  const preferredName = cleanText(
+    item.templateName ||
+      process.env.WHATSAPP_FOLLOWUP_TEMPLATE_NAME ||
+      'follow_up',
+  ).toLowerCase();
+  const preferredLanguage = cleanText(
+    item.templateLanguage ||
+      process.env.WHATSAPP_FOLLOWUP_TEMPLATE_LANGUAGE ||
+      'en',
+  ).toLowerCase();
+  const named = result.items.filter(
+    (template) => cleanText(template.name).toLowerCase() === preferredName,
+  );
+  const template =
+    named.find(
+      (candidate) =>
+        cleanText(candidate.language).toLowerCase() === preferredLanguage,
+    ) ||
+    named[0] ||
+    result.items.find((candidate) =>
+      /(?:^|_)(?:follow_?up|lead_?follow)(?:_|$)/i.test(candidate.name || ''),
+    );
+  if (!template) {
+    return {
+      ok: false,
+      error: `No approved Meta follow-up template found. Approve "${preferredName}" in WhatsApp Manager first.`,
+    };
+  }
+  return { ok: true, template };
+}
+
+async function sendWhatsAppTemplate(to, template, values = []) {
+  const parameterCount = countTemplateBodyParameters(template);
+  const components = parameterCount
+    ? [{
+        type: 'body',
+        parameters: values.slice(0, parameterCount).map((text) => ({
+          type: 'text',
+          text: compact(text || '-', 1024),
+        })),
+      }]
+    : undefined;
+  return sendWhatsAppPayload(to, {
+    type: 'template',
+    template: {
+      name: template.name,
+      language: { code: template.language || 'en' },
+      ...(components ? { components } : {}),
+    },
+  });
+}
+
+async function deliverFollowup(item) {
+  const sessions = await readJson(SESSIONS, {});
+  const phoneKey = normalizeWhatsAppNumber(item.phone);
+  const session = Object.values(sessions).find(
+    (candidate) => normalizeWhatsAppNumber(candidate.phone) === phoneKey,
+  );
+  const lastUserAt = [...(session?.transcript || [])]
+    .reverse()
+    .find((message) => message.role === 'user')?.at;
+  const lastInboundAt = session?.lastInboundAt || lastUserAt || '';
+  if (isWithinCustomerServiceWindow(lastInboundAt)) {
+    const delivery = await sendWhatsAppText(item.phone, followupMessage(item));
+    if (
+      delivery.sent ||
+      Number(delivery.response?.error?.code || 0) !== 131047
+    ) {
+      return { ...delivery, channel: 'free_form', customerWindowOpen: true };
+    }
+  }
+  const resolved = await resolveFollowupTemplate(item);
+  if (!resolved.ok) {
+    return {
+      sent: false,
+      reason: `Outside WhatsApp's 24-hour customer-service window. ${resolved.error}`,
+      channel: 'template_required',
+      customerWindowOpen: false,
+    };
+  }
+  const delivery = await sendWhatsAppTemplate(
+    item.phone,
+    resolved.template,
+    followupTemplateValues(item),
+  );
+  return {
+    ...delivery,
+    channel: 'approved_template',
+    templateName: resolved.template.name,
+    customerWindowOpen: false,
+  };
+}
+
+async function recordOutboundMessage({
+  phone,
+  text,
+  role = 'bot',
+  type = 'text',
+  delivery,
+}) {
+  if (!delivery?.sent) return;
+  const sessions = await readJson(SESSIONS, {});
+  const normalized = normalizeWhatsAppNumber(phone);
+  const entry = Object.entries(sessions).find(([, session]) =>
+    normalizeWhatsAppNumber(session.phone) === normalized,
+  );
+  const key = entry?.[0] || cleanText(phone);
+  const session = entry?.[1] || {
+    phone: cleanText(phone),
+    name: cleanText(phone),
+    transcript: [],
+    botPaused: false,
+  };
+  const messageId = cleanText(delivery.response?.messages?.[0]?.id || '');
+  const existingDraft = [...(session.transcript || [])]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === role &&
+        !cleanText(message.messageId || '') &&
+        cleanText(message.text || '') === cleanText(text || ''),
+    );
+  if (existingDraft) {
+    existingDraft.messageId = messageId;
+    existingDraft.deliveryStatus = 'sent';
+    existingDraft.deliveryUpdatedAt = new Date().toISOString();
+    session.updatedAt = existingDraft.deliveryUpdatedAt;
+    sessions[key] = session;
+    await writeJson(SESSIONS, sessions);
+    return;
+  }
+  if (
+    messageId &&
+    (session.transcript || []).some(
+      (message) => cleanText(message.messageId || '') === messageId,
+    )
+  ) {
+    return;
+  }
+  const at = new Date().toISOString();
+  session.transcript = Array.isArray(session.transcript) ? session.transcript : [];
+  session.transcript.push({
+    role,
+    text: compact(text || 'WhatsApp message', 3900),
+    at,
+    type,
+    messageId,
+    deliveryStatus: 'sent',
+  });
+  session.updatedAt = at;
+  if (role === 'human') session.lastHumanAt = at;
+  else session.lastBotAt = at;
+  sessions[key] = session;
+  await writeJson(SESSIONS, sessions);
+}
+
 function normalizeWhatsAppNumber(value) {
   const digits = String(value || '').replace(/[^0-9]/g, '');
   if (/^0?3\d{9}$/.test(digits)) return `92${digits.replace(/^0/, '')}`;
@@ -1517,6 +1808,11 @@ function whatsappManualPayload(input) {
   const type = cleanText(input.type || 'text').toLowerCase();
   const text = compact(input.text || input.caption || '', 3900);
   const mediaUrl = cleanText(input.mediaUrl || input.url || '');
+  const transcriptMediaUrl =
+    mediaUrl ||
+    (cleanText(input.mediaId || '')
+      ? `/api/whatsapp/media/${encodeURIComponent(cleanText(input.mediaId))}`
+      : '');
   const filename = compact(input.filename || 'Raza-Productions-file', 120);
   const lat = Number(input.latitude);
   const lng = Number(input.longitude);
@@ -1581,22 +1877,30 @@ function whatsappManualPayload(input) {
   });
 }
 
-async function runDueFollowups(limit = 20) {
+async function runDueFollowups(limit = 20, options = {}) {
   const settings = await automationSettings();
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Karachi', hour: '2-digit', hour12: false }).format(new Date()));
   const quiet = settings.quietHoursStart > settings.quietHoursEnd
     ? hour >= settings.quietHoursStart || hour < settings.quietHoursEnd
     : hour >= settings.quietHoursStart && hour < settings.quietHoursEnd;
-  if (!settings.whatsappEnabled || quiet) {
+  if (!settings.whatsappEnabled || (quiet && !options.manual)) {
     return [{ skipped: true, reason: !settings.whatsappEnabled ? 'WhatsApp automation disabled' : 'Pakistan quiet hours active', due: (await dueFollowups()).length }];
   }
   const now = Date.now();
   let list = await readJson(FOLLOWUPS, []);
   const staleClaimBefore = now - 5 * 60 * 1000;
+  const requestedIds = new Set(
+    (Array.isArray(options.ids) ? options.ids : [options.id])
+      .map(cleanText)
+      .filter(Boolean),
+  );
   const claimIds = list
     .filter((item) => {
+      if (requestedIds.size) {
+        return requestedIds.has(item.id) && !['sent', 'processing'].includes(item.status);
+      }
       if (item.status === 'processing') return Date.parse(item.processingAt || 0) <= staleClaimBefore;
-      if (item.status === 'needs_token_or_retry') {
+      if (['needs_token_or_retry', 'needs_template'].includes(item.status)) {
         return Date.parse(item.nextAttemptAt || item.dueAt || 0) <= now && Number(item.attempts || 0) < 5;
       }
       return item.status === 'scheduled' && Date.parse(item.dueAt || 0) <= now;
@@ -1613,17 +1917,37 @@ async function runDueFollowups(limit = 20) {
   for (const id of claimIds) {
     const item = list.find((candidate) => candidate.id === id);
     if (!item) continue;
-    const delivery = await sendWhatsAppText(item.phone, followupMessage(item));
+    const delivery = await deliverFollowup(item);
     item.attempts = Number(item.attempts || 0) + 1;
     item.lastAttemptAt = new Date().toISOString();
     item.lastDelivery = delivery;
+    item.deliveryChannel = delivery.channel || '';
+    item.lastError = delivery.sent
+      ? ''
+      : delivery.response?.error?.message || delivery.reason || 'WhatsApp delivery failed';
     if (delivery.sent) {
       item.status = 'sent';
       item.sentAt = item.lastAttemptAt;
       delete item.nextAttemptAt;
+      await recordOutboundMessage({
+        phone: item.phone,
+        text: followupMessage(item),
+        role: 'bot',
+        delivery,
+      });
     } else {
-      item.status = item.attempts >= 5 ? 'failed' : 'needs_token_or_retry';
-      item.nextAttemptAt = new Date(Date.now() + Math.min(60, 2 ** item.attempts * 5) * 60 * 1000).toISOString();
+      const needsTemplate = delivery.channel === 'template_required';
+      item.status = needsTemplate
+        ? 'needs_template'
+        : item.attempts >= 5
+          ? 'failed'
+          : 'needs_token_or_retry';
+      item.nextAttemptAt = new Date(
+        Date.now() +
+          (needsTemplate ? 6 * 60 : Math.min(60, 2 ** item.attempts * 5)) *
+            60 *
+            1000,
+      ).toISOString();
     }
     delete item.processingAt;
     results.push({ followup: item, delivery });
@@ -1717,12 +2041,24 @@ function extractWhatsAppInbound(payload) {
     isMessage: Boolean(message || payload.text || payload.message),
     isStatus: Boolean(status),
     status: status?.status,
+    statusMessageId: status?.id || '',
+    statusAt: normalizeWhatsAppTimestamp(status?.timestamp || payload.statusAt),
+    statusError: compact(
+      status?.errors?.[0]?.error_data?.details ||
+        status?.errors?.[0]?.message ||
+        payload.statusError ||
+        '',
+      1000,
+    ),
     from: payload.from || payload.phone || message?.from || '',
     name: payload.name || contact?.profile?.name || message?.from || 'WhatsApp User',
     type: messageType,
     mediaId: payload.mediaId || media.id || '',
     mimeType: payload.mimeType || media.mime_type || '',
     messageId: payload.messageId || message?.id || '',
+    messageAt: normalizeWhatsAppTimestamp(
+      payload.messageAt || payload.timestamp || message?.timestamp,
+    ),
     replyToMessageId: payload.replyToMessageId || message?.context?.id || '',
     text:
       payload.text ||
@@ -1748,11 +2084,13 @@ async function botTurn(payload) {
   const text = cleanText(payload.text || payload.message || payload.intent || 'start');
   session.humanReplyPlaybook = humanReplyPlaybook(sessions, text);
   const response = await answerQuestionSmart(text, payload.intent, kb, session);
-  session.transcript.push({ role: 'user', text, at: new Date().toISOString(), type: payload.type || 'text', mediaId: payload.mediaId || '', mimeType: payload.mimeType || '', mediaUrl: payload.mediaId ? `/api/whatsapp/media/${encodeURIComponent(payload.mediaId)}` : '', messageId: cleanText(payload.messageId || ''), replyToMessageId: cleanText(payload.replyToMessageId || '') });
-  session.transcript.push({ role: 'bot', text: response.text, buttons: response.buttons, at: new Date().toISOString() });
-  session.lastInboundAt = new Date().toISOString();
-  session.lastBotAt = new Date().toISOString();
-  session.updatedAt = new Date().toISOString();
+  const messageAt = normalizeWhatsAppTimestamp(payload.messageAt);
+  const replyAt = new Date().toISOString();
+  session.transcript.push({ role: 'user', text, at: messageAt, type: payload.type || 'text', mediaId: payload.mediaId || '', mimeType: payload.mimeType || '', mediaUrl: payload.mediaId ? `/api/whatsapp/media/${encodeURIComponent(payload.mediaId)}` : '', messageId: cleanText(payload.messageId || ''), replyToMessageId: cleanText(payload.replyToMessageId || '') });
+  session.transcript.push({ role: 'bot', text: response.text, buttons: response.buttons, at: replyAt });
+  session.lastInboundAt = messageAt;
+  session.lastBotAt = replyAt;
+  session.updatedAt = replyAt;
   if (response.needsHuman) {
     session.unresolvedStreak = Number(session.unresolvedStreak || 0) + 1;
     session.needsHuman = true;
@@ -1826,10 +2164,11 @@ async function receiveHumanVisibleMessage(payload) {
   const phone = cleanText(payload.phone || payload.from || 'Unknown');
   const session = sessions[phone] || { phone, name: payload.name || phone, transcript: [], botPaused: false };
   session.name = cleanText(payload.name || session.name || phone);
+  const messageAt = normalizeWhatsAppTimestamp(payload.messageAt);
   session.transcript.push({
     role: 'user',
     text: cleanText(payload.text || payload.message || 'Incoming message'),
-    at: new Date().toISOString(),
+    at: messageAt,
     source: payload.source || 'WhatsApp',
     type: payload.type || 'text',
     mediaId: payload.mediaId || '',
@@ -1844,11 +2183,44 @@ async function receiveHumanVisibleMessage(payload) {
     session.pauseReason = `${cleanText(payload.type || 'Media')} message needs human review`;
     session.unresolvedQuestion = `${cleanText(payload.type || 'Media')} message received`;
   }
-  session.lastInboundAt = new Date().toISOString();
+  session.lastInboundAt = messageAt;
   session.updatedAt = new Date().toISOString();
   sessions[phone] = session;
   await writeJson(SESSIONS, sessions);
   return session;
+}
+
+async function applyWhatsAppDeliveryStatus(inbound) {
+  const messageId = cleanText(inbound.statusMessageId || '');
+  if (!messageId) return { ok: true, updated: false, reason: 'Status message ID missing' };
+  const sessions = await readJson(SESSIONS, {});
+  let updated = false;
+  let matchedPhone = '';
+  for (const session of Object.values(sessions)) {
+    const message = (session.transcript || []).find(
+      (item) => cleanText(item.messageId || '') === messageId,
+    );
+    if (!message) continue;
+    message.deliveryStatus = cleanText(inbound.status || 'sent').toLowerCase();
+    message.deliveryUpdatedAt = normalizeWhatsAppTimestamp(inbound.statusAt);
+    message.deliveryError = compact(inbound.statusError || '', 1000);
+    session.lastDeliveryStatusAt = message.deliveryUpdatedAt;
+    session.lastDeliveryStatus = message.deliveryStatus;
+    updated = true;
+    matchedPhone = session.phone;
+    break;
+  }
+  if (updated) {
+    await writeJson(SESSIONS, sessions);
+    if (inbound.status === 'failed') {
+      await audit('message.delivery_failed', {
+        phone: matchedPhone,
+        messageId,
+        error: inbound.statusError,
+      });
+    }
+  }
+  return { ok: true, updated, status: inbound.status, messageId };
 }
 
 async function setBotPause(input) {
@@ -1923,8 +2295,9 @@ async function manualReply(input) {
       text: displayText,
       at: new Date().toISOString(),
       type,
-      mediaUrl,
+      mediaUrl: transcriptMediaUrl,
       mediaId: cleanText(input.mediaId || ''),
+      mimeType: normalizeMediaMimeType(input.mimeType || ''),
       deliveryStatus: 'sent',
       messageId: cleanText(delivery.response?.messages?.[0]?.id || ''),
       replyToMessageId: cleanText(input.replyToMessageId || ''),
@@ -1996,10 +2369,24 @@ async function uploadWhatsAppMedia(input) {
   const meta = await getMetaConfig();
   if (!meta.accessToken || !meta.phoneNumberId) return { ok: false, error: 'Meta connection is incomplete' };
   const raw = String(input.dataUrl || input.base64 || '');
-  const match = raw.match(/^data:([^;]+);base64,(.+)$/s);
-  const mimeType = cleanText(input.mimeType || match?.[1] || 'application/octet-stream');
+  const match = raw.match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.+)$/s);
+  const mimeType = normalizeMediaMimeType(input.mimeType || match?.[1]);
   const bytes = Buffer.from(match?.[2] || raw, 'base64');
   if (!bytes.length) return { ok: false, error: 'Audio file is empty' };
+  const supportedAudio = new Set([
+    'audio/aac',
+    'audio/amr',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/mp4',
+    'audio/ogg',
+  ]);
+  if (mimeType.startsWith('audio/') && !supportedAudio.has(mimeType)) {
+    return {
+      ok: false,
+      error: `WhatsApp Cloud API does not support ${mimeType}. Use MP3, M4A/MP4, AAC, AMR or OGG/Opus audio.`,
+    };
+  }
   const maxBytes = mimeType.startsWith('video/') ? 16 * 1024 * 1024 : mimeType.startsWith('audio/') ? 8 * 1024 * 1024 : 10 * 1024 * 1024;
   if (bytes.length > maxBytes) return { ok: false, error: `File must be ${Math.round(maxBytes / 1024 / 1024)} MB or smaller` };
   const form = new FormData();
@@ -2093,7 +2480,7 @@ async function analytics() {
       total: followups.length,
       scheduled: followups.filter((item) => item.status === 'scheduled').length,
       sent: followups.filter((item) => item.status === 'sent').length,
-      needsAttention: followups.filter((item) => item.status === 'needs_token_or_retry').length,
+      needsAttention: followups.filter((item) => ['needs_token_or_retry', 'needs_template', 'failed'].includes(item.status)).length,
     },
     bySource: groupCount(leads, 'source'),
     byService: groupCount(leads, 'service'),
@@ -2121,7 +2508,10 @@ function publicSession(session) {
   const userMessages = transcript.filter((item) => item.role === 'user');
   const botMessages = transcript.filter((item) => item.role === 'bot');
   const humanMessages = transcript.filter((item) => item.role === 'human');
-  const last = transcript[transcript.length - 1];
+  const byTime = (a, b) => new Date(a.at || 0) - new Date(b.at || 0);
+  const last = [...transcript].sort(
+    byTime,
+  ).at(-1);
   return {
     phone: session.phone,
     name: session.name || session.phone,
@@ -2139,9 +2529,9 @@ function publicSession(session) {
     tags: Array.isArray(session.tags) ? session.tags : [],
     notes: session.notes || '',
     messages: transcript.length,
-    lastUserMessage: userMessages[userMessages.length - 1]?.text || '',
-    lastBotMessage: botMessages[botMessages.length - 1]?.text || '',
-    lastHumanMessage: humanMessages[humanMessages.length - 1]?.text || '',
+    lastUserMessage: [...userMessages].sort(byTime).at(-1)?.text || '',
+    lastBotMessage: [...botMessages].sort(byTime).at(-1)?.text || '',
+    lastHumanMessage: [...humanMessages].sort(byTime).at(-1)?.text || '',
     updatedAt: last?.at || session.updatedAt || session.lastInboundAt || '',
     lastDelivery: session.lastDelivery || null,
     transcript,
@@ -2167,14 +2557,14 @@ async function publicUsers() {
 
 async function login(input) {
   const users = await readJson(USERS, seedUsers);
-  const email = cleanText(input.email).toLowerCase();
+  const email = cleanText(input.email || input.username).toLowerCase();
   const passwordHash = hashSecret(input.password || input.pin);
-  const user = users.find((item) => item.email.toLowerCase() === email && item.passwordHash === passwordHash);
-  if (!user) return { ok: false, error: 'Invalid email or PIN' };
+  const user = users.find((item) => item.email.toLowerCase() === email);
+  const expectedHash = user?.role === 'Owner' ? OWNER_PASSWORD_HASH : (process.env.APP_SALES_PASSWORD_HASH || 'disabled');
+  if (!user || !safeEqual(passwordHash, expectedHash)) return { ok: false, error: 'Invalid email or password' };
   const { passwordHash: _passwordHash, ...publicUser } = user;
-  const token = randomUUID();
   await audit('auth.login', { actor: user.email, role: user.role });
-  return { ok: true, token, user: publicUser };
+  return { ok: true, user: publicUser };
 }
 
 async function backupBundle() {
@@ -3087,6 +3477,24 @@ export async function appHandler(req, res) {
       if (url.pathname === '/manifest.webmanifest') return send(res, 200, await readFile(path.join(__dirname, 'public', 'manifest.webmanifest'), 'utf8'), 'application/manifest+json');
       if (url.pathname === '/sw.js') return send(res, 200, await readFile(path.join(__dirname, 'public', 'sw.js'), 'utf8'), 'application/javascript');
       if (url.pathname === '/icon.svg') return send(res, 200, await readFile(path.join(__dirname, 'public', 'icon.svg'), 'utf8'), 'image/svg+xml');
+      if (url.pathname === '/api/auth/login' && req.method === 'POST') {
+        if (loginRateLimited(req)) return send(res, 429, { error: 'Too many login attempts. Please wait 15 minutes.' });
+        const result = await login(await getBody(req));
+        if (!result.ok) return send(res, 401, result);
+        const token = signSession(result.user);
+        return send(res, 200, result, 'application/json', { 'set-cookie': sessionCookie(token), 'cache-control': 'no-store' });
+      }
+      if (url.pathname === '/api/auth/session' && req.method === 'GET') {
+        const session = currentSession(req);
+        return session ? send(res, 200, { ok: true, user: session }, 'application/json', { 'cache-control': 'no-store' }) : send(res, 401, { error: 'Authentication required', code: 'AUTH_REQUIRED' });
+      }
+      if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
+        return send(res, 200, { ok: true }, 'application/json', { 'set-cookie': sessionCookie('', 0), 'cache-control': 'no-store' });
+      }
+      const publicApi = url.pathname === '/api/widget/message' || url.pathname === '/api/website-lead' || url.pathname.startsWith('/api/portal/') || url.pathname.startsWith('/api/cron/');
+      if (url.pathname.startsWith('/api/') && !publicApi && !currentSession(req)) {
+        return send(res, 401, { error: 'Authentication required', code: 'AUTH_REQUIRED' });
+      }
       if (url.pathname === '/api/config') {
         const metaConfig = await getMetaConfig();
         return send(res, 200, {
@@ -3136,7 +3544,6 @@ export async function appHandler(req, res) {
         });
       }
       if (url.pathname === '/api/team' && req.method === 'GET') return send(res, 200, { users: await publicUsers() });
-      if (url.pathname === '/api/auth/login' && req.method === 'POST') return send(res, 200, await login(await getBody(req)));
       if (url.pathname === '/api/knowledge' && req.method === 'GET') return send(res, 200, await getKnowledge());
       if (url.pathname === '/api/knowledge' && req.method === 'POST') return send(res, 200, await saveKnowledge(await getBody(req)));
       if (url.pathname === '/api/analytics' && req.method === 'GET') return send(res, 200, await analytics());
@@ -3162,6 +3569,10 @@ export async function appHandler(req, res) {
       if (url.pathname === '/api/templates' && req.method === 'GET') return send(res, 200, { templates: await getTemplates() });
       if (url.pathname === '/api/templates' && req.method === 'POST') return send(res, 200, await saveTemplate(await getBody(req)));
       if (url.pathname === '/api/templates/remove' && req.method === 'POST') return send(res, 200, await removeTemplate(await getBody(req)));
+      if (url.pathname === '/api/templates/meta' && req.method === 'GET') {
+        const result = await approvedWhatsAppTemplates(url.searchParams.get('refresh') === '1');
+        return send(res, result.ok ? 200 : 503, result);
+      }
       if (url.pathname === '/api/quick-replies' && req.method === 'GET') return send(res, 200, { items: await getQuickReplies() });
       if (url.pathname === '/api/quick-replies/sync' && req.method === 'POST') return send(res, 200, await syncQuickReplies(await getBody(req)));
       if (url.pathname === '/api/quick-replies/remove' && req.method === 'POST') return send(res, 200, await removeQuickReply(await getBody(req)));
@@ -3277,7 +3688,14 @@ export async function appHandler(req, res) {
       }
       if (url.pathname === '/api/followups/schedule' && req.method === 'POST') return send(res, 200, { items: await scheduleCustomFollowup(await getBody(req)) });
       if (url.pathname === '/api/followups/run' && (req.method === 'POST' || req.method === 'GET')) {
-        return send(res, 200, { results: await runDueFollowups(), checkedAt: new Date().toISOString() });
+        const input = req.method === 'POST' ? await getBody(req) : {};
+        return send(res, 200, {
+          results: await runDueFollowups(20, {
+            id: cleanText(input.id || ''),
+            manual: Boolean(input.manual || input.id),
+          }),
+          checkedAt: new Date().toISOString(),
+        });
       }
       if (url.pathname === '/api/bot/message' && req.method === 'POST') return send(res, 200, await botTurn(await getBody(req)));
       if (url.pathname === '/api/meta/self-test' && req.method === 'POST') return send(res, 200, await runMetaSelfTest());
@@ -3292,18 +3710,24 @@ export async function appHandler(req, res) {
       }
       if (url.pathname === '/webhooks/whatsapp' && req.method === 'POST') {
         const inbound = extractWhatsAppInbound(await getBody(req));
-        if (inbound.isStatus || !inbound.isMessage) return send(res, 200, { ok: true, type: 'status_or_test' });
+        if (inbound.isStatus) {
+          return send(res, 200, await applyWhatsAppDeliveryStatus(inbound));
+        }
+        if (!inbound.isMessage) return send(res, 200, { ok: true, type: 'test_event' });
         if (['audio', 'voice'].includes(inbound.type)) {
           const sessions = await readJson(SESSIONS, {});
           const existing = sessions[cleanText(inbound.from)];
           const transcription = await transcribeWhatsAppAudio(inbound.mediaId);
           if (existing?.botPaused || !transcription.ok) {
-            const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: transcription.ok ? transcription.text : inbound.text, type: inbound.type, mediaId: inbound.mediaId, mimeType: inbound.mimeType, messageId: inbound.messageId, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
-            const delivery = existing?.botPaused ? { sent: false, reason: 'Bot paused by operator' } : await sendWhatsAppText(inbound.from, 'Aapka audio receive ho gaya hai. Hamari team sun kar aapko personally reply karegi.');
+            const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: transcription.ok ? transcription.text : inbound.text, type: inbound.type, mediaId: inbound.mediaId, mimeType: inbound.mimeType, messageId: inbound.messageId, messageAt: inbound.messageAt, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
+            const acknowledgement = 'Aapka audio receive ho gaya hai. Hamari team sun kar aapko personally reply karegi.';
+            const delivery = existing?.botPaused ? { sent: false, reason: 'Bot paused by operator' } : await sendWhatsAppText(inbound.from, acknowledgement);
+            await recordOutboundMessage({ phone: inbound.from, text: acknowledgement, delivery });
             return send(res, 200, { ok: true, mode: 'audio_human_review', transcription, session: publicSession(session), delivery });
           }
-          const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: transcription.text, type: inbound.type, mediaId: inbound.mediaId, mimeType: inbound.mimeType, messageId: inbound.messageId, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
+          const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: transcription.text, type: inbound.type, mediaId: inbound.mediaId, mimeType: inbound.mimeType, messageId: inbound.messageId, messageAt: inbound.messageAt, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
           const delivery = await sendWhatsAppText(inbound.from, turn.reply.text, turn.reply.buttons);
+          await recordOutboundMessage({ phone: inbound.from, text: turn.reply.text, delivery });
           return send(res, 200, { ok: true, mode: 'audio_ai_reply', transcription, turn, delivery });
         }
         if (['audio', 'voice', 'image', 'video', 'document'].includes(inbound.type)) {
@@ -3315,21 +3739,25 @@ export async function appHandler(req, res) {
             mediaId: inbound.mediaId,
             mimeType: inbound.mimeType,
             messageId: inbound.messageId,
+            messageAt: inbound.messageAt,
             replyToMessageId: inbound.replyToMessageId,
             source: 'WhatsApp',
           });
           const mediaLabel = inbound.type === 'image' ? 'image' : inbound.type === 'video' ? 'video' : inbound.type === 'document' ? 'document' : 'audio message';
-          const delivery = await sendWhatsAppText(inbound.from, `Aapka ${mediaLabel} receive ho gaya hai. Hamari team review karke aapko human reply karegi.`);
+          const acknowledgement = `Aapka ${mediaLabel} receive ho gaya hai. Hamari team review karke aapko human reply karegi.`;
+          const delivery = await sendWhatsAppText(inbound.from, acknowledgement);
+          await recordOutboundMessage({ phone: inbound.from, text: acknowledgement, delivery });
           return send(res, 200, { ok: true, mode: 'media_human_review', session: publicSession(session), delivery });
         }
         const sessions = await readJson(SESSIONS, {});
         const existing = sessions[cleanText(inbound.from)];
         if (existing?.botPaused) {
-          const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: inbound.text, messageId: inbound.messageId, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
+          const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: inbound.text, messageId: inbound.messageId, messageAt: inbound.messageAt, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
           return send(res, 200, { ok: true, mode: 'human_takeover', session: publicSession(session), delivery: { sent: false, reason: 'Bot paused by operator' } });
         }
-        const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: inbound.text, intent: inbound.intent, messageId: inbound.messageId, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
+        const turn = await botTurn({ phone: inbound.from, name: inbound.name, text: inbound.text, intent: inbound.intent, messageId: inbound.messageId, messageAt: inbound.messageAt, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
         const delivery = await sendWhatsAppText(inbound.from, turn.reply.text, turn.reply.buttons);
+        await recordOutboundMessage({ phone: inbound.from, text: turn.reply.text, delivery });
         return send(res, 200, { ok: true, turn, delivery });
       }
       if (url.pathname === '/webhooks/meta' && req.method === 'POST') return send(res, 200, await addLead(await getBody(req), 'Meta'));
