@@ -1454,20 +1454,33 @@ function followupMessage(item) {
 async function scheduleFollowups(lead) {
   if (!lead.phone || lead.phone === 'Unknown') return [];
   const list = await readJson(FOLLOWUPS, []);
-  const items = followupPlanForScore(lead.score, lead.createdAt).map((step, index) => followupItemFromLead(lead, step, index));
+  const normalizedPhone = normalizeWhatsAppNumber(lead.phone);
+  const activeStatuses = new Set(['scheduled', 'processing', 'needs_token_or_retry', 'needs_template']);
+  const supersededAt = new Date().toISOString();
+  for (const item of list) {
+    const sameLead = item.leadId === lead.id || normalizeWhatsAppNumber(item.phone) === normalizedPhone;
+    if (!sameLead || !activeStatuses.has(item.status)) continue;
+    item.status = 'cancelled';
+    item.cancelledAt = supersededAt;
+    item.cancellationReason = 'Superseded by newer customer activity';
+    delete item.nextAttemptAt;
+    delete item.processingAt;
+  }
+  const cycleStartedAt = lead.lastMessageAt || lead.updatedAt || lead.createdAt || new Date().toISOString();
+  const items = followupPlanForScore(lead.score, cycleStartedAt).map((step, index) => followupItemFromLead(lead, step, index));
   const activeKeys = new Set(
     list
       .filter((item) => ['scheduled', 'needs_token_or_retry', 'needs_template'].includes(item.status))
       .map((item) => `${item.phone}|${item.leadId}|${item.stage}`),
   );
   const freshItems = items.filter((item) => !activeKeys.has(`${item.phone}|${item.leadId}|${item.stage}`));
-  if (freshItems.length) await writeJson(FOLLOWUPS, [...freshItems, ...list]);
+  await writeJson(FOLLOWUPS, [...freshItems, ...list]);
   return freshItems;
 }
 
 function followupItemFromLead(lead, step, index = 0) {
   return {
-    id: `F-${Date.now()}-${index}`,
+    id: `F-${randomUUID()}`,
     leadId: lead.id,
     phone: lead.phone,
     name: lead.name,
@@ -1479,6 +1492,8 @@ function followupItemFromLead(lead, step, index = 0) {
     messageType: step.messageType,
     dueAt: step.dueAt,
     status: 'scheduled',
+    autoScheduled: true,
+    cycleStartedAt: lead.lastMessageAt || lead.updatedAt || lead.createdAt || new Date().toISOString(),
     attempts: 0,
     createdAt: new Date().toISOString(),
   };
@@ -1501,6 +1516,7 @@ async function scheduleCustomFollowup(input) {
   };
   const items = followupPlanForDelay(input.delayMinutes, createdAt).map((step, index) => ({
     ...followupItemFromLead(lead, step, index),
+    autoScheduled: false,
     createdAt,
     message: compact(input.message || '', 3900),
   }));
@@ -1891,6 +1907,28 @@ async function runDueFollowups(limit = 20, options = {}) {
   }
   const now = Date.now();
   let list = await readJson(FOLLOWUPS, []);
+  const leads = await readJson(LEADS, seedLeads);
+  const leadById = new Map(leads.map((lead) => [lead.id, lead]));
+  let reconciled = false;
+  for (const item of list) {
+    if (!['scheduled', 'needs_token_or_retry', 'needs_template'].includes(item.status)) continue;
+    const lead = leadById.get(item.leadId);
+    const leadStatus = cleanText(lead?.status).toLowerCase();
+    if (['won', 'completed', 'deal won', 'archived'].includes(leadStatus)) {
+      item.status = 'cancelled';
+      item.cancelledAt = new Date().toISOString();
+      item.cancellationReason = `Lead status changed to ${leadStatus}`;
+      reconciled = true;
+      continue;
+    }
+    if (item.autoScheduled !== false && Date.parse(lead?.lastMessageAt || 0) > Date.parse(item.createdAt || 0)) {
+      item.status = 'cancelled';
+      item.cancelledAt = new Date().toISOString();
+      item.cancellationReason = 'Customer replied after this follow-up was scheduled';
+      reconciled = true;
+    }
+  }
+  if (reconciled) await writeJson(FOLLOWUPS, list);
   const staleClaimBefore = now - 5 * 60 * 1000;
   const requestedIds = new Set(
     (Array.isArray(options.ids) ? options.ids : [options.id])
