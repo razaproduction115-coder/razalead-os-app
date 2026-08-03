@@ -325,7 +325,7 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const paletteItems = [
-    ...corePages.map((x) => ({ ...x, type: "page" })),
+    ...corePages.filter((x) => user?.role === "Owner" || !["team", "knowledge", "templates", "connect", "audit"].includes(x.id)).map((x) => ({ ...x, type: "page" })),
     ...aiFeatures.map((x) => ({ ...x, type: "feature" })),
   ].filter((x) =>
     `${x.label} ${x.urdu || ""}`
@@ -348,6 +348,7 @@ function App() {
         navigate={navigate}
         openFeature={openFeature}
         close={() => setSidebar(false)}
+        user={user}
       />
       <div className="lg:pl-72">
         <Topbar
@@ -393,7 +394,7 @@ function App() {
               {page === "team" && (
                 <TeamPage team={data.team} loading={loading} />
               )}
-              {page === "settings" && <SettingsPage notify={notify} />}
+              {page === "settings" && <SettingsPage notify={notify} user={user} onUserChange={setUser} />}
               {page === "feature" && (
                 <FeaturePage feature={feature} notify={notify} />
               )}
@@ -650,7 +651,8 @@ function QuickReplyDock({ visible, notify }) {
   );
 }
 
-function Sidebar({ open, page, feature, navigate, openFeature, close }) {
+function Sidebar({ open, page, feature, navigate, openFeature, close, user }) {
+  const visiblePages = corePages.filter((item) => user?.role === "Owner" || !["team", "knowledge", "templates", "connect", "audit"].includes(item.id));
   return (
     <>
       <div
@@ -678,7 +680,7 @@ function Sidebar({ open, page, feature, navigate, openFeature, close }) {
           <p className="px-3 pb-2 text-[11px] font-bold uppercase tracking-widest text-slate-600">
             Workspace
           </p>
-          {corePages.map((item) => (
+          {visiblePages.map((item) => (
             <NavButton
               key={item.id}
               item={item}
@@ -1781,7 +1783,7 @@ function TeamPage({ team, loading }) {
     </>
   );
 }
-function SettingsPage({ notify }) {
+function SettingsPage({ notify, user, onUserChange }) {
   const [form, setForm] = useState({
     adminEmail: false,
     clientEmail: false,
@@ -1789,14 +1791,17 @@ function SettingsPage({ notify }) {
     senderName: "Raza Productions",
   });
   const [history, setHistory] = useState([]);
+  const [password, setPassword] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [passwordBusy, setPasswordBusy] = useState(false);
   useEffect(() => {
+    if (user?.role !== "Owner") return;
     Promise.all([api("/api/email/settings"), api("/api/email/history")]).then(
       ([s, h]) => {
         setForm(s.settings);
         setHistory(h.items || []);
       },
     );
-  }, []);
+  }, [user?.role]);
   const save = async () => {
     await api("/api/email/settings", {
       method: "POST",
@@ -1804,6 +1809,20 @@ function SettingsPage({ notify }) {
       body: JSON.stringify(form),
     });
     notify("Settings saved", "Email preferences updated.");
+  };
+  const changePassword = async () => {
+    if (password.newPassword !== password.confirmPassword) return notify("Password not changed", "New password aur confirmation match nahi karte.", "error");
+    setPasswordBusy(true);
+    try {
+      const result = await api("/api/auth/password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(password) });
+      setPassword({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      onUserChange?.(result.user);
+      notify("Password changed", "Aapka login password securely update ho gaya hai.");
+    } catch (error) {
+      notify("Password not changed", error.message, "error");
+    } finally {
+      setPasswordBusy(false);
+    }
   };
   return (
     <>
@@ -1814,6 +1833,15 @@ function SettingsPage({ notify }) {
       />
       <div className="grid gap-5 xl:grid-cols-2">
         <Card>
+          <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-md bg-[#ff3217]/15 text-[#ff5a3d]"><LockKeyhole size={20} /></div><div><h2 className="text-lg font-bold">Account Security</h2><p className="text-sm text-slate-500">{user?.email} · {user?.role}</p></div></div>
+          <div className="mt-5 space-y-4">
+            <div><label className="label">Current password</label><input className="field" type="password" autoComplete="current-password" value={password.currentPassword} onChange={(e) => setPassword({ ...password, currentPassword: e.target.value })} /></div>
+            <div><label className="label">New password</label><input className="field" type="password" autoComplete="new-password" value={password.newPassword} onChange={(e) => setPassword({ ...password, newPassword: e.target.value })} /><p className="mt-2 text-xs text-slate-500">Minimum 12 characters, uppercase, lowercase aur number.</p></div>
+            <div><label className="label">Confirm new password</label><input className="field" type="password" autoComplete="new-password" value={password.confirmPassword} onChange={(e) => setPassword({ ...password, confirmPassword: e.target.value })} /></div>
+            <button className="btn-primary w-full" disabled={passwordBusy || !password.currentPassword || !password.newPassword || !password.confirmPassword} onClick={changePassword}><LockKeyhole size={18} />{passwordBusy ? "Changing..." : "Change password"}</button>
+          </div>
+        </Card>
+        {user?.role === "Owner" && <Card>
           <h2 className="text-lg font-bold">Email + Notifications</h2>
           <div className="mt-5 space-y-4">
             <Toggle
@@ -1853,8 +1881,8 @@ function SettingsPage({ notify }) {
               Save settings
             </button>
           </div>
-        </Card>
-        <Card>
+        </Card>}
+        {user?.role === "Owner" && <Card>
           <h2 className="text-lg font-bold">Email History</h2>
           <div className="mt-4 space-y-3">
             {history.slice(0, 10).map((x) => (
@@ -1879,7 +1907,7 @@ function SettingsPage({ notify }) {
               <p className="text-sm text-slate-500">No email activity yet.</p>
             )}
           </div>
-        </Card>
+        </Card>}
       </div>
     </>
   );
