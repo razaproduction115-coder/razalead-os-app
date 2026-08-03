@@ -36,6 +36,7 @@ const SESSION_COOKIE = 'razalead_session';
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const AUTH_SECRET = process.env.AUTH_SECRET || process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_VERIFY_TOKEN || 'razalead-local-development-only';
 const OWNER_PASSWORD_HASH = process.env.APP_OWNER_PASSWORD_HASH || '895257631f181d748fcb0013aee89a82ebd0eeb6c259d18e40dff3a748f9e888';
+const SALES_PASSWORD_HASH = process.env.APP_SALES_PASSWORD_HASH || '4ca99e7b5530a6ce98f3843f2b0472e42ccb53f506a48f6e1a2cbeecce4e5302';
 const loginAttempts = new Map();
 const DATABASE_URL = process.env.RAZA_NEXT_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 let databasePromise = null;
@@ -2560,10 +2561,33 @@ async function login(input) {
   const email = cleanText(input.email || input.username).toLowerCase();
   const passwordHash = hashSecret(input.password || input.pin);
   const user = users.find((item) => item.email.toLowerCase() === email);
-  const expectedHash = user?.role === 'Owner' ? OWNER_PASSWORD_HASH : (process.env.APP_SALES_PASSWORD_HASH || 'disabled');
+  const legacyHash = user?.role === 'Owner' ? hashSecret('raza2026') : hashSecret('sales2026');
+  const fallbackHash = user?.role === 'Owner' ? OWNER_PASSWORD_HASH : SALES_PASSWORD_HASH;
+  const expectedHash = user?.passwordHash && user.passwordHash !== legacyHash ? user.passwordHash : fallbackHash;
   if (!user || !safeEqual(passwordHash, expectedHash)) return { ok: false, error: 'Invalid email or password' };
   const { passwordHash: _passwordHash, ...publicUser } = user;
   await audit('auth.login', { actor: user.email, role: user.role });
+  return { ok: true, user: publicUser };
+}
+
+async function changePassword(session, input) {
+  const currentPassword = cleanText(input.currentPassword);
+  const nextPassword = String(input.newPassword || '');
+  if (nextPassword.length < 12 || !/[A-Z]/.test(nextPassword) || !/[a-z]/.test(nextPassword) || !/\d/.test(nextPassword)) {
+    return { ok: false, status: 400, error: 'New password must be at least 12 characters with uppercase, lowercase and a number.' };
+  }
+  const users = await readJson(USERS, seedUsers);
+  const index = users.findIndex((item) => item.id === session.id || item.email.toLowerCase() === session.email.toLowerCase());
+  if (index < 0) return { ok: false, status: 404, error: 'User account not found.' };
+  const user = users[index];
+  const legacyHash = user.role === 'Owner' ? hashSecret('raza2026') : hashSecret('sales2026');
+  const fallbackHash = user.role === 'Owner' ? OWNER_PASSWORD_HASH : SALES_PASSWORD_HASH;
+  const expectedHash = user.passwordHash && user.passwordHash !== legacyHash ? user.passwordHash : fallbackHash;
+  if (!safeEqual(hashSecret(currentPassword), expectedHash)) return { ok: false, status: 401, error: 'Current password is incorrect.' };
+  users[index] = { ...user, passwordHash: hashSecret(nextPassword), passwordChangedAt: new Date().toISOString() };
+  await writeJson(USERS, users);
+  await audit('auth.password_changed', { actor: user.email, role: user.role });
+  const { passwordHash: _passwordHash, ...publicUser } = users[index];
   return { ok: true, user: publicUser };
 }
 
@@ -3494,6 +3518,16 @@ export async function appHandler(req, res) {
       const publicApi = url.pathname === '/api/widget/message' || url.pathname === '/api/website-lead' || url.pathname.startsWith('/api/portal/') || url.pathname.startsWith('/api/cron/');
       if (url.pathname.startsWith('/api/') && !publicApi && !currentSession(req)) {
         return send(res, 401, { error: 'Authentication required', code: 'AUTH_REQUIRED' });
+      }
+      const session = currentSession(req);
+      if (url.pathname === '/api/auth/password' && req.method === 'POST') {
+        const result = await changePassword(session, await getBody(req));
+        if (!result.ok) return send(res, result.status || 400, result);
+        return send(res, 200, result, 'application/json', { 'set-cookie': sessionCookie(signSession(result.user)), 'cache-control': 'no-store' });
+      }
+      const ownerOnlyPrefixes = ['/api/team', '/api/knowledge', '/api/templates', '/api/email/', '/api/audit', '/api/backup', '/api/meta/', '/api/automation-blueprints', '/api/automations/settings'];
+      if (session && session.role !== 'Owner' && ownerOnlyPrefixes.some((prefix) => url.pathname.startsWith(prefix))) {
+        return send(res, 403, { error: 'Owner access required', code: 'OWNER_REQUIRED' });
       }
       if (url.pathname === '/api/config') {
         const metaConfig = await getMetaConfig();
