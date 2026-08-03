@@ -15,6 +15,8 @@ import {
   FileText,
   Filter,
   LayoutDashboard,
+  LockKeyhole,
+  LogOut,
   Mail,
   Menu,
   MessageSquare,
@@ -42,6 +44,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { chatListTime, karachiDateParts } from "./whatsapp-date";
 
 const corePages = [
   {
@@ -118,7 +121,7 @@ const api = async (url, options) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 35000);
     try {
-      response = await fetch(url, { ...options, signal: options?.signal || controller.signal });
+      response = await fetch(url, { credentials: "same-origin", ...options, signal: options?.signal || controller.signal });
       break;
     } catch (error) {
       lastError = error;
@@ -137,6 +140,9 @@ const api = async (url, options) => {
     data = raw ? JSON.parse(raw) : {};
   } catch {
     data = { error: raw };
+  }
+  if (response.status === 401 && url !== "/api/auth/login" && url !== "/api/auth/session") {
+    window.dispatchEvent(new Event("razalead-auth-expired"));
   }
   if (!response.ok)
     throw new Error(
@@ -176,6 +182,8 @@ function PageTitle({ title, urdu, description, action }) {
 }
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [page, setPage] = useState("dashboard");
   const [feature, setFeature] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -230,7 +238,16 @@ function App() {
     setLoading(false);
   };
   useEffect(() => {
-    load();
+    api("/api/auth/session")
+      .then((result) => setUser(result.user))
+      .catch(() => setUser(null))
+      .finally(() => setAuthLoading(false));
+    const expired = () => setUser(null);
+    window.addEventListener("razalead-auth-expired", expired);
+    return () => window.removeEventListener("razalead-auth-expired", expired);
+  }, []);
+  useEffect(() => {
+    if (user) load();
     const key = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -243,9 +260,9 @@ function App() {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, []);
+  }, [user]);
   useEffect(() => {
-    if (!alertsEnabled) return;
+    if (!user || !alertsEnabled) return;
     const check = async () => {
       if (document.visibilityState !== "visible") return;
       try {
@@ -266,7 +283,7 @@ function App() {
     check();
     const timer = setInterval(check, 30000);
     return () => clearInterval(timer);
-  }, [alertsEnabled]);
+  }, [alertsEnabled, user]);
   useEffect(() => {
     const ready = (event) => {
       event.preventDefault();
@@ -315,6 +332,13 @@ function App() {
       .toLowerCase()
       .includes(paletteQuery.toLowerCase()),
   );
+  const logout = async () => {
+    try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+    setUser(null);
+    setData({ stats: {}, leads: [], analytics: {}, team: [], audit: [], saas: { features: [], jobs: [] } });
+  };
+  if (authLoading) return <AuthLoading />;
+  if (!user) return <LoginScreen onLogin={setUser} />;
   return (
     <div className="min-h-screen bg-[#0F172A]">
       <Sidebar
@@ -333,6 +357,8 @@ function App() {
           toggleAlerts={toggleAlerts}
           canInstall={Boolean(installPrompt)}
           installApp={installApp}
+          user={user}
+          logout={logout}
         />
         <main className="mx-auto max-w-[1600px] px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-10">
           <AnimatePresence mode="wait">
@@ -713,6 +739,8 @@ function Topbar({
   toggleAlerts,
   canInstall,
   installApp,
+  user,
+  logout,
 }) {
   return (
     <header className="sticky top-0 z-30 flex h-20 min-w-0 items-center gap-3 overflow-hidden border-b border-slate-800 bg-[#0F172A]/90 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
@@ -762,11 +790,62 @@ function Topbar({
           className="h-11 w-16 rounded-md bg-[#f3eadb] object-contain p-1"
         />
         <div>
-          <b className="text-sm">Raza Productions</b>
-          <p className="text-xs text-slate-500">Owner</p>
+          <b className="text-sm">{user?.name || "Raza Productions"}</b>
+          <p className="text-xs text-slate-500">{user?.role || "Owner"}</p>
         </div>
       </div>
+      <button onClick={logout} title="Sign out" className="btn-secondary !h-11 !w-11 shrink-0 !p-0">
+        <LogOut size={18} />
+      </button>
     </header>
+  );
+}
+
+function AuthLoading() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#0F172A] px-5">
+      <div className="text-center">
+        <img src="/rp-brand-logo.jpg" alt="Raza Productions" className="mx-auto h-20 w-32 rounded-md bg-[#f3eadb] object-contain p-2" />
+        <div className="mx-auto mt-6 h-1.5 w-32 overflow-hidden rounded-full bg-slate-800"><motion.div className="h-full bg-[#ff3217]" initial={{ x: "-100%" }} animate={{ x: "100%" }} transition={{ repeat: Infinity, duration: 0.9 }} /></div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ onLogin }) {
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
+      onLogin(result.user);
+    } catch (loginError) {
+      setError(loginError.message || "Login failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#0F172A] px-4 py-10">
+      <div className="absolute inset-x-0 top-0 h-1 bg-[#ff3217]" />
+      <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md rounded-lg border border-slate-700 bg-[#151f33] p-6 shadow-2xl sm:p-8">
+        <img src="/rp-brand-logo.jpg" alt="Raza Productions" className="h-20 w-36 rounded-md bg-[#f3eadb] object-contain p-2" />
+        <p className="mt-7 text-xs font-bold uppercase tracking-[.18em] text-[#ff5a3d]">Secure workspace</p>
+        <h1 className="mt-2 text-3xl font-extrabold text-white">Raza Lead OS</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-400">Private CRM access. Apni email aur password se sign in karein.</p>
+        <form onSubmit={submit} className="mt-7 space-y-5">
+          <div><label className="label" htmlFor="login-email">Email or username</label><input id="login-email" className="field" type="text" autoComplete="username" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="owner@razaproductions.com" /></div>
+          <div><label className="label" htmlFor="login-password">Password</label><input id="login-password" className="field" type="password" autoComplete="current-password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Enter password" /></div>
+          {error && <div role="alert" className="flex gap-2 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300"><AlertCircle className="mt-0.5 shrink-0" size={17} /><span>{error}</span></div>}
+          <button disabled={busy} className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#ff3217] font-extrabold text-white transition hover:bg-[#ff4b32] disabled:opacity-60"><LockKeyhole size={18} />{busy ? "Signing in..." : "Sign in securely"}</button>
+        </form>
+        <p className="mt-6 text-center text-xs text-slate-500">Raza Productions internal system</p>
+      </motion.section>
+    </main>
   );
 }
 
@@ -2778,6 +2857,7 @@ function RestoredToolPage({ mode, notify }) {
   const [data, setData] = useState(null),
     [busy, setBusy] = useState(false),
     [form, setForm] = useState({}),
+    [actionReport, setActionReport] = useState(""),
     [message, setMessage] = useState("Services"),
     [chat, setChat] = useState([]);
   const titles = {
@@ -2873,6 +2953,58 @@ function RestoredToolPage({ mode, notify }) {
       return result;
     } catch (e) {
       notify("Action failed", e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const runFollowups = async (id = "") => {
+    setBusy(true);
+    setActionReport("");
+    try {
+      const result = await api("/api/followups/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, manual: Boolean(id) }),
+      });
+      const results = Array.isArray(result.results) ? result.results : [];
+      const skipped = results.find((item) => item?.skipped);
+      const sent = results.filter((item) => item?.delivery?.sent).length;
+      const failed = results.filter(
+        (item) => item?.delivery && !item.delivery.sent,
+      ).length;
+      const report = skipped
+        ? `Nothing sent: ${skipped.reason}. ${skipped.due || 0} follow-up(s) are due.`
+        : results.length
+          ? `${sent} sent, ${failed} need attention.`
+          : "No eligible follow-ups are due right now.";
+      setActionReport(report);
+      notify(
+        sent ? "Follow-up sent" : "Follow-up check complete",
+        report,
+        failed || skipped ? "error" : "success",
+      );
+      await load();
+    } catch (e) {
+      setActionReport(e.message);
+      notify("Follow-up failed", e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const syncMetaTemplates = async () => {
+    setBusy(true);
+    try {
+      const result = await api("/api/templates/meta?refresh=1");
+      setData((current) => ({
+        ...(current || {}),
+        metaTemplates: result.items || [],
+      }));
+      notify(
+        "Meta templates synced",
+        `${result.items?.length || 0} approved template(s) are available for follow-ups.`,
+      );
+    } catch (e) {
+      notify("Template sync failed", e.message, "error");
     } finally {
       setBusy(false);
     }
@@ -3009,15 +3141,20 @@ function RestoredToolPage({ mode, notify }) {
             <button
               className="btn-primary"
               disabled={busy}
-              onClick={() => post("/api/followups/run")}
+              onClick={() => runFollowups()}
             >
               <PlayCircle size={18} />
               Run due
             </button>
           }
         />
+        {actionReport && (
+          <div className="mb-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-300">
+            {actionReport}
+          </div>
+        )}
         <Card>
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-5">
             <input
               className="field"
               placeholder="Name"
@@ -3034,11 +3171,18 @@ function RestoredToolPage({ mode, notify }) {
                 setForm({ ...form, delayMinutes: e.target.value })
               }
             >
+              <option value="0">Send now</option>
               <option value="5">5 minutes</option>
               <option value="10">10 minutes</option>
+              <option value="30">30 minutes</option>
               <option value="60">1 hour</option>
               <option value="1440">1 day</option>
             </select>
+            <input
+              className="field"
+              placeholder="Custom message (optional)"
+              onChange={(e) => setForm({ ...form, message: e.target.value })}
+            />
             <button
               className="btn-secondary"
               onClick={() =>
@@ -3058,14 +3202,41 @@ function RestoredToolPage({ mode, notify }) {
             {items.map((x, i) => (
               <div
                 key={x.id || i}
-                className="grid gap-2 rounded-xl border border-slate-700 p-3 sm:grid-cols-4"
+                className="grid gap-2 rounded-xl border border-slate-700 p-3 sm:grid-cols-[1.2fr_1fr_0.8fr_1.2fr_auto]"
               >
                 <b>{x.name || x.phone}</b>
                 <span>{x.service || "General"}</span>
-                <span>{x.status || "scheduled"}</span>
+                <div>
+                  <span className="font-bold">{x.status || "scheduled"}</span>
+                  {x.deliveryChannel && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {x.deliveryChannel}
+                    </p>
+                  )}
+                </div>
                 <span className="text-slate-400">
-                  {x.dueAt ? new Date(x.dueAt).toLocaleString() : ""}
+                  {x.dueAt
+                    ? karachiDateParts(x.dueAt).full
+                    : "Time not set"}
+                  {(x.lastError ||
+                    x.lastDelivery?.reason ||
+                    x.lastDelivery?.response?.error?.message) && (
+                    <small className="mt-1 block text-red-300">
+                      {x.lastError ||
+                        x.lastDelivery?.reason ||
+                        x.lastDelivery?.response?.error?.message}
+                    </small>
+                  )}
                 </span>
+                {!["sent", "processing"].includes(x.status) && (
+                  <button
+                    className="btn-secondary !min-h-9 px-3 py-2 text-xs"
+                    disabled={busy}
+                    onClick={() => runFollowups(x.id)}
+                  >
+                    Send now
+                  </button>
+                )}
               </div>
             ))}
             {!items.length && (
@@ -3136,9 +3307,34 @@ function RestoredToolPage({ mode, notify }) {
     );
   if (mode === "templates") {
     const items = data?.templates || [];
+    const metaTemplates = data?.metaTemplates || [];
     return (
       <>
-        <PageTitle title={title} urdu="Messages" description={description} />
+        <PageTitle
+          title={title}
+          urdu="Messages"
+          description={description}
+          action={
+            <button
+              className="btn-secondary"
+              disabled={busy}
+              onClick={syncMetaTemplates}
+            >
+              <Activity size={18} />
+              Sync approved Meta templates
+            </button>
+          }
+        />
+        <div className="mb-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-300">
+          Follow-ups outside WhatsApp&apos;s 24-hour window require an approved
+          Meta template named <b>follow_up</b>. Approved templates found:{" "}
+          <b>{metaTemplates.length}</b>.
+          {metaTemplates.length > 0 && (
+            <span className="ml-2 text-slate-500">
+              {metaTemplates.map((template) => template.name).join(", ")}
+            </span>
+          )}
+        </div>
         <Card>
           <div className="grid gap-3 md:grid-cols-4">
             <input
@@ -3433,54 +3629,6 @@ function ToastStack({ toasts }) {
   );
 }
 
-const karachiDateParts = (value) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return { key: "", day: "", time: "" };
-  const key = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Karachi",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Karachi",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  const yesterday = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Karachi",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(Date.now() - 86400000));
-  return {
-    key,
-    day:
-      key === today
-        ? "Today"
-        : key === yesterday
-          ? "Yesterday"
-          : new Intl.DateTimeFormat("en-PK", {
-              timeZone: "Asia/Karachi",
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            }).format(date),
-    time: new Intl.DateTimeFormat("en-PK", {
-      timeZone: "Asia/Karachi",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }).format(date),
-  };
-};
-
-const chatListTime = (value) => {
-  const parts = karachiDateParts(value);
-  return parts.day === "Today" ? parts.time : parts.day;
-};
-
 function InboxPage({ notify }) {
   const [sessions, setSessions] = useState([]),
     [phone, setPhone] = useState(""),
@@ -3490,6 +3638,7 @@ function InboxPage({ notify }) {
     [search, setSearch] = useState(""),
     [attachOpen, setAttachOpen] = useState(false),
     [recording, setRecording] = useState(false),
+    [recordingSeconds, setRecordingSeconds] = useState(0),
     [replyingTo, setReplyingTo] = useState(null),
     [detailsOpen, setDetailsOpen] = useState(false),
     [contact, setContact] = useState({ name: "", phone: "" });
@@ -3510,7 +3659,22 @@ function InboxPage({ notify }) {
     const timer = setInterval(load, 30000);
     return () => clearInterval(timer);
   }, []);
+  useEffect(() => {
+    if (!recording) {
+      setRecordingSeconds(0);
+      return undefined;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(
+      () => setRecordingSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      500,
+    );
+    return () => clearInterval(timer);
+  }, [recording]);
   const active = sessions.find((x) => x.phone === phone) || sessions[0];
+  const activeTranscript = [...(active?.transcript || [])].sort(
+    (a, b) => new Date(a.at || 0) - new Date(b.at || 0),
+  );
   const folders = ["All", "Hot", "Warm", "Cold", "Needs Human"];
   const counts = Object.fromEntries(
     folders.map((name) => [
@@ -3642,75 +3806,82 @@ ${message}`
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const supportedVoice = type !== "audio" || /^audio\/(mp4|ogg|mpeg|aac|amr)/i.test(file.type);
-      const initialType = type === "audio" && !supportedVoice ? "application/octet-stream" : (file.type || "application/octet-stream");
+      const extension = String(file.name || "")
+        .split(".")
+        .pop()
+        .toLowerCase();
+      const audioMimeByExtension = {
+        aac: "audio/aac",
+        amr: "audio/amr",
+        mp3: "audio/mpeg",
+        m4a: "audio/mp4",
+        mp4: "audio/mp4",
+        ogg: "audio/ogg",
+      };
+      const normalizedMime =
+        type === "audio" && audioMimeByExtension[extension]
+          ? audioMimeByExtension[extension]
+          : String(file.type || "application/octet-stream")
+              .split(";")[0]
+              .toLowerCase();
+      const supportedVoice =
+        type !== "audio" ||
+        /^audio\/(mp4|ogg|mpeg|mp3|aac|amr)$/i.test(normalizedMime);
+      if (!supportedVoice) {
+        throw new Error(
+          "This browser recorded an unsupported WebM voice file. Use a current Chrome, Edge or Safari browser, or attach an MP3, M4A, AAC, AMR or OGG file.",
+        );
+      }
       const up = await api("/api/whatsapp/media/upload", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           dataUrl,
-          mimeType: initialType,
+          mimeType: normalizedMime,
           filename: file.name,
         }),
       });
       if (!up.ok) throw new Error(up.error || "Upload failed");
-      const outboundType = type === "audio" && !supportedVoice ? "document" : type;
       const r = await api("/api/live-inbox/manual-reply", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           phone: active.phone,
-          type: outboundType,
+          type,
           mediaId: up.mediaId,
+          mimeType: normalizedMime,
           filename: file.name,
           text: message,
+          replyToMessageId: replyingTo?.messageId || "",
+          replyToText: replyingTo?.text || "",
+          replyToRole: replyingTo?.role || "",
         }),
       });
-      let deliveredAs = outboundType === "document" && type === "audio" ? "playable audio file" : type;
       if (!r.delivery?.sent) {
-        if (type !== "audio")
-          throw new Error(
-            r.delivery?.response?.error?.message || "WhatsApp delivery failed",
-          );
-        const documentUpload = await api("/api/whatsapp/media/upload", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ dataUrl, mimeType: "application/octet-stream", filename: file.name || `Raza-voice-${Date.now()}.audio` }),
-        });
-        if (!documentUpload.ok) throw new Error(documentUpload.error || "Voice fallback upload failed");
-        const fallback = await api("/api/live-inbox/manual-reply", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            phone: active.phone,
-            type: "document",
-            mediaId: documentUpload.mediaId,
-            filename: file.name || `Raza-voice-${Date.now()}.audio`,
-            text: message || "Voice message",
-          }),
-        });
-        if (!fallback.delivery?.sent)
-          throw new Error(
-            fallback.delivery?.response?.error?.message ||
-              r.delivery?.response?.error?.message ||
-              "Voice message delivery failed",
-          );
-        deliveredAs = "playable audio file";
+        throw new Error(
+          r.delivery?.response?.error?.message ||
+            r.delivery?.reason ||
+            "WhatsApp delivery failed",
+        );
       }
       setMessage("");
+      setReplyingTo(null);
       setAttachOpen(false);
       await load();
-      notify("Attachment sent", `${deliveredAs} delivered on WhatsApp.`);
+      notify(
+        type === "audio" ? "Voice note sent" : "Attachment sent",
+        `${type} delivered on WhatsApp.`,
+      );
     } catch (error) {
       notify("Attachment failed", error.message, "error");
     } finally {
       setBusy(false);
     }
   };
-  const sendMedia = async (e) => {
+  const sendMedia = async (e, typeOverride = "") => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    await uploadAndSend(file);
+    await uploadAndSend(file, typeOverride);
   };
   const sendLocation = () => {
     if (!active || !navigator.geolocation)
@@ -3794,16 +3965,29 @@ ${message}`
       return;
     }
     try {
+      if (
+        !navigator.mediaDevices?.getUserMedia ||
+        typeof MediaRecorder === "undefined"
+      ) {
+        throw new Error(
+          "Voice recording is not supported in this browser. Open the secure live app in a current Chrome, Edge or Safari browser.",
+        );
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const preferred = [
         "audio/mp4;codecs=mp4a.40.2",
-        "audio/mp4;codecs=opus",
         "audio/mp4",
         "audio/ogg;codecs=opus",
       ].find((type) => MediaRecorder.isTypeSupported(type));
+      if (!preferred) {
+        stream.getTracks().forEach((track) => track.stop());
+        throw new Error(
+          "This browser can only record WebM audio, which WhatsApp Cloud API does not accept as a voice note. Please use a current Chrome, Edge or Safari version, or attach MP3/M4A/OGG audio.",
+        );
+      }
       const recorder = new MediaRecorder(
         stream,
-        preferred ? { mimeType: preferred } : undefined,
+        { mimeType: preferred },
       );
       audioChunks.current = [];
       recorder.ondataavailable = (e) =>
@@ -3818,6 +4002,14 @@ ${message}`
             ? "ogg"
             : "webm";
         const blob = new Blob(audioChunks.current, { type: mime });
+        if (!blob.size) {
+          notify(
+            "Voice note empty",
+            "Record again and speak after the red timer starts.",
+            "error",
+          );
+          return;
+        }
         await uploadAndSend(
           new File([blob], `voice-${Date.now()}.${extension}`, {
             type: blob.type,
@@ -3825,8 +4017,14 @@ ${message}`
           "audio",
         );
       };
+      recorder.onerror = (event) =>
+        notify(
+          "Recording failed",
+          event.error?.message || "The browser could not record this voice note.",
+          "error",
+        );
       recorderRef.current = recorder;
-      recorder.start();
+      recorder.start(1000);
       setRecording(true);
     } catch (e) {
       notify("Microphone unavailable", e.message, "error");
@@ -3979,7 +4177,7 @@ ${message}`
                 />
               )}
               <div className="flex-1 space-y-3 overflow-y-auto bg-slate-950/30 p-4">
-                {(active.transcript || []).map((item, i, transcript) => {
+                {activeTranscript.map((item, i, transcript) => {
                   const stamp = karachiDateParts(item.at);
                   const previousStamp = karachiDateParts(transcript[i - 1]?.at);
                   return (
@@ -4002,8 +4200,19 @@ ${message}`
                             )}
                             <MessageAttachment item={item} />
                             <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${item.role === "human" ? "text-slate-900/65" : "text-slate-400"}`}>
-                              <span>{stamp.time || "Time unavailable"}</span>
+                              <span>{stamp.full || "Date unavailable"}</span>
                               {item.deliveryStatus === "sent" && <span aria-label="sent">✓</span>}
+                              {item.deliveryStatus === "delivered" && <span aria-label="delivered">✓✓</span>}
+                              {item.deliveryStatus === "read" && <span className="text-sky-300" aria-label="read">✓✓</span>}
+                              {item.deliveryStatus === "failed" && (
+                                <span
+                                  className="font-black text-red-300"
+                                  title={item.deliveryError || "Delivery failed"}
+                                  aria-label="failed"
+                                >
+                                  !
+                                </span>
+                              )}
                             </div>
                           </div>
                           {item.role !== "system" && (
@@ -4044,7 +4253,7 @@ ${message}`
                 )}
                 {attachOpen && (
                   <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900 p-3">
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-2 sm:grid-cols-3">
                       <label className="btn-secondary cursor-pointer justify-start">
                         <Upload size={17} /> Image, video or document
                         <input
@@ -4052,6 +4261,16 @@ ${message}`
                           type="file"
                           accept="image/*,video/mp4,video/3gpp,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
                           onChange={sendMedia}
+                        />
+                      </label>
+                      <label className="btn-secondary cursor-pointer justify-start">
+                        <Mic size={17} /> Record or attach audio
+                        <input
+                          className="hidden"
+                          type="file"
+                          accept="audio/aac,audio/amr,audio/mpeg,audio/mp3,audio/mp4,audio/ogg,.aac,.amr,.mp3,.m4a,.ogg"
+                          capture="user"
+                          onChange={(event) => sendMedia(event, "audio")}
                         />
                       </label>
                       <button className="btn-secondary justify-start" onClick={sendLocation}>
@@ -4086,6 +4305,12 @@ ${message}`
                       }
                     }}
                   />
+                  {recording && (
+                    <span className="mb-3 shrink-0 rounded-full bg-red-500/15 px-2 py-1 text-xs font-bold text-red-300">
+                      {Math.floor(recordingSeconds / 60)}:
+                      {String(recordingSeconds % 60).padStart(2, "0")}
+                    </span>
+                  )}
                   <button
                     className={`!h-12 !w-12 shrink-0 !p-0 ${recording ? "btn-primary !bg-red-500" : "btn-secondary"}`}
                     disabled={busy}
