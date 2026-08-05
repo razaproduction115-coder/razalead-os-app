@@ -1922,9 +1922,32 @@ async function runDueFollowups(limit = 20, options = {}) {
   const now = Date.now();
   let list = await readJson(FOLLOWUPS, []);
   const leads = await readJson(LEADS, seedLeads);
+  const sessions = await readJson(SESSIONS, {});
   const leadById = new Map(leads.map((lead) => [lead.id, lead]));
+  const failedDeliveryByMessageId = new Map();
+  for (const session of Object.values(sessions)) {
+    for (const message of session.transcript || []) {
+      const messageId = cleanText(message.messageId || '');
+      if (messageId && cleanText(message.deliveryStatus).toLowerCase() === 'failed') {
+        failedDeliveryByMessageId.set(messageId, compact(message.deliveryError || '', 1000));
+      }
+    }
+  }
   let reconciled = false;
   for (const item of list) {
+    const providerMessageId = cleanText(item.lastDelivery?.response?.messages?.[0]?.id || '');
+    const historicalFailure = providerMessageId ? failedDeliveryByMessageId.get(providerMessageId) : '';
+    if (historicalFailure && ['sent', 'accepted'].includes(item.status)) {
+      item.lastError = historicalFailure;
+      item.deliveryStatus = 'failed';
+      item.status = /(?:131047|24.hour|customer.service.window|template)/i.test(historicalFailure)
+        ? 'needs_template'
+        : Number(item.attempts || 0) >= 5
+          ? 'failed'
+          : 'needs_token_or_retry';
+      item.nextAttemptAt = new Date().toISOString();
+      reconciled = true;
+    }
     if (!['scheduled', 'accepted', 'needs_token_or_retry', 'needs_template'].includes(item.status)) continue;
     const lead = leadById.get(item.leadId);
     const leadStatus = cleanText(lead?.status).toLowerCase();
