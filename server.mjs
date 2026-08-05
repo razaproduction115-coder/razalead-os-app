@@ -1412,18 +1412,22 @@ function labelForScore(score) {
 function followupPlanForScore(score, createdAt) {
   if (score >= 75) {
     return [
-      { day: 2, stage: 'First follow-up', messageType: 'booking_help' },
-      { day: 4, stage: 'Second follow-up', messageType: 'portfolio_pricing' },
-      { day: 7, stage: 'Final follow-up', messageType: 'close_or_archive' },
+      { day: 1, stage: '24-hour follow-up', messageType: 'booking_help' },
+      { day: 2, stage: '48-hour follow-up', messageType: 'portfolio_pricing' },
+      { day: 4, stage: 'Final follow-up', messageType: 'close_or_archive' },
     ].map((step) => ({ ...step, dueAt: addDaysIso(step.day, createdAt) }));
   }
   if (score >= 50) {
     return [
-      { day: 4, stage: 'First follow-up', messageType: 'portfolio_pricing' },
-      { day: 7, stage: 'Second follow-up', messageType: 'close_or_archive' },
+      { day: 2, stage: '48-hour follow-up', messageType: 'booking_help' },
+      { day: 4, stage: 'Second follow-up', messageType: 'portfolio_pricing' },
+      { day: 7, stage: 'Final follow-up', messageType: 'close_or_archive' },
     ].map((step) => ({ ...step, dueAt: addDaysIso(step.day, createdAt) }));
   }
-  return [{ day: 7, stage: 'Light follow-up', messageType: 'services_reminder', dueAt: addDaysIso(7, createdAt) }];
+  return [
+    { day: 3, stage: 'Cold lead check-in', messageType: 'services_reminder' },
+    { day: 7, stage: 'Final cold lead follow-up', messageType: 'close_or_archive' },
+  ].map((step) => ({ ...step, dueAt: addDaysIso(step.day, createdAt) }));
 }
 
 function followupPlanForDelay(delayMinutes, createdAt) {
@@ -1455,7 +1459,7 @@ async function scheduleFollowups(lead) {
   if (!lead.phone || lead.phone === 'Unknown') return [];
   const list = await readJson(FOLLOWUPS, []);
   const normalizedPhone = normalizeWhatsAppNumber(lead.phone);
-  const activeStatuses = new Set(['scheduled', 'processing', 'needs_token_or_retry', 'needs_template']);
+  const activeStatuses = new Set(['scheduled', 'processing', 'accepted', 'needs_token_or_retry', 'needs_template']);
   const supersededAt = new Date().toISOString();
   for (const item of list) {
     const sameLead = item.leadId === lead.id || normalizeWhatsAppNumber(item.phone) === normalizedPhone;
@@ -1470,7 +1474,7 @@ async function scheduleFollowups(lead) {
   const items = followupPlanForScore(lead.score, cycleStartedAt).map((step, index) => followupItemFromLead(lead, step, index));
   const activeKeys = new Set(
     list
-      .filter((item) => ['scheduled', 'needs_token_or_retry', 'needs_template'].includes(item.status))
+      .filter((item) => ['scheduled', 'accepted', 'needs_token_or_retry', 'needs_template'].includes(item.status))
       .map((item) => `${item.phone}|${item.leadId}|${item.stage}`),
   );
   const freshItems = items.filter((item) => !activeKeys.has(`${item.phone}|${item.leadId}|${item.stage}`));
@@ -1522,7 +1526,7 @@ async function scheduleCustomFollowup(input) {
   }));
   const duplicateKeys = new Set(
     list
-      .filter((item) => ['scheduled', 'needs_token_or_retry', 'needs_template'].includes(item.status))
+      .filter((item) => ['scheduled', 'accepted', 'needs_token_or_retry', 'needs_template'].includes(item.status))
       .map((item) => `${item.phone}|${item.stage}|${item.messageType}`),
   );
   const freshItems = items.filter((item) => !duplicateKeys.has(`${item.phone}|${item.stage}|${item.messageType}`));
@@ -1814,13 +1818,23 @@ async function sendWhatsAppPayload(to, payload) {
   if (!cleanTo) return { sent: false, reason: 'Recipient missing' };
   const url = `https://graph.facebook.com/${meta.graphVersion}/${meta.phoneNumberId}/messages`;
   const finalPayload = { ...payload, to: cleanTo, messaging_product: 'whatsapp' };
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${meta.accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(finalPayload),
-  });
-  const json = await response.json().catch(() => ({}));
-  return { sent: response.ok, status: response.status, response: json };
+  let last = { sent: false, status: 0, response: {}, reason: 'WhatsApp request failed' };
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${meta.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(finalPayload),
+      });
+      const json = await response.json().catch(() => ({}));
+      last = { sent: response.ok, accepted: response.ok, status: response.status, response: json, attempt };
+      if (response.ok || (response.status !== 429 && response.status < 500)) return last;
+    } catch (error) {
+      last = { sent: false, accepted: false, status: 0, response: {}, reason: cleanText(error?.message || 'WhatsApp network request failed'), attempt };
+    }
+    if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  return last;
 }
 
 function whatsappManualPayload(input) {
@@ -1911,7 +1925,7 @@ async function runDueFollowups(limit = 20, options = {}) {
   const leadById = new Map(leads.map((lead) => [lead.id, lead]));
   let reconciled = false;
   for (const item of list) {
-    if (!['scheduled', 'needs_token_or_retry', 'needs_template'].includes(item.status)) continue;
+    if (!['scheduled', 'accepted', 'needs_token_or_retry', 'needs_template'].includes(item.status)) continue;
     const lead = leadById.get(item.leadId);
     const leadStatus = cleanText(lead?.status).toLowerCase();
     if (['won', 'completed', 'deal won', 'archived'].includes(leadStatus)) {
@@ -1967,8 +1981,8 @@ async function runDueFollowups(limit = 20, options = {}) {
       ? ''
       : delivery.response?.error?.message || delivery.reason || 'WhatsApp delivery failed';
     if (delivery.sent) {
-      item.status = 'sent';
-      item.sentAt = item.lastAttemptAt;
+      item.status = 'accepted';
+      item.acceptedAt = item.lastAttemptAt;
       delete item.nextAttemptAt;
       await recordOutboundMessage({
         phone: item.phone,
@@ -1992,7 +2006,7 @@ async function runDueFollowups(limit = 20, options = {}) {
     }
     delete item.processingAt;
     results.push({ followup: item, delivery });
-    await audit(delivery.sent ? 'followup.sent' : 'followup.retry_scheduled', {
+    await audit(delivery.sent ? 'followup.accepted' : 'followup.retry_scheduled', {
       followupId: item.id,
       leadId: item.leadId,
       phone: item.phone,
@@ -2085,8 +2099,12 @@ function extractWhatsAppInbound(payload) {
     statusMessageId: status?.id || '',
     statusAt: normalizeWhatsAppTimestamp(status?.timestamp || payload.statusAt),
     statusError: compact(
-      status?.errors?.[0]?.error_data?.details ||
-        status?.errors?.[0]?.message ||
+      [
+        status?.errors?.[0]?.code,
+        status?.errors?.[0]?.title,
+        status?.errors?.[0]?.message,
+        status?.errors?.[0]?.error_data?.details,
+      ].filter(Boolean).join(' | ') ||
         payload.statusError ||
         '',
       1000,
@@ -2253,6 +2271,32 @@ async function applyWhatsAppDeliveryStatus(inbound) {
   }
   if (updated) {
     await writeJson(SESSIONS, sessions);
+    const followups = await readJson(FOLLOWUPS, []);
+    const followup = followups.find(
+      (item) => cleanText(item.lastDelivery?.response?.messages?.[0]?.id || '') === messageId,
+    );
+    if (followup) {
+      const status = cleanText(inbound.status || '').toLowerCase();
+      followup.deliveryStatus = status;
+      followup.deliveryUpdatedAt = normalizeWhatsAppTimestamp(inbound.statusAt);
+      followup.lastError = compact(inbound.statusError || '', 1000);
+      if (['delivered', 'read'].includes(status)) {
+        followup.status = 'sent';
+        followup.sentAt = followup.deliveryUpdatedAt;
+        delete followup.nextAttemptAt;
+      } else if (status === 'failed') {
+        const needsTemplate = /(?:131047|24.hour|customer.service.window|template)/i.test(followup.lastError);
+        followup.status = needsTemplate
+          ? 'needs_template'
+          : Number(followup.attempts || 0) >= 5
+            ? 'failed'
+            : 'needs_token_or_retry';
+        followup.nextAttemptAt = new Date(
+          Date.now() + (needsTemplate ? 6 * 60 : 15) * 60 * 1000,
+        ).toISOString();
+      }
+      await writeJson(FOLLOWUPS, followups);
+    }
     if (inbound.status === 'failed') {
       await audit('message.delivery_failed', {
         phone: matchedPhone,
@@ -2320,6 +2364,7 @@ async function manualReply(input) {
   if (type === 'contact' && (!cleanText(input.contactName) || !normalizeWhatsAppNumber(input.contactPhone))) return { ok: false, error: 'contact name and phone required' };
   const session = sessions[phone] || { phone, name: phone, transcript: [], botPaused: true };
   session.botPaused = true;
+  session.pauseReason = 'Human takeover by operator';
   const displayText = type === 'text'
     ? text
     : type === 'location'
@@ -3958,6 +4003,19 @@ export async function appHandler(req, res) {
         }
         const sessions = await readJson(SESSIONS, {});
         const existing = sessions[cleanText(inbound.from)];
+        if (existing?.botPaused && cleanText(existing.pauseReason).toLowerCase().includes('human takeover')) {
+          const lastHumanAt = Date.parse(existing.lastHumanAt || existing.updatedAt || 0);
+          const autoResumeAfterMs = Math.max(1, Number(process.env.BOT_AUTO_RESUME_HOURS || 12)) * 60 * 60 * 1000;
+          if (lastHumanAt && Date.now() - lastHumanAt >= autoResumeAfterMs) {
+            existing.botPaused = false;
+            existing.needsHuman = false;
+            existing.pauseReason = 'Automatically resumed after inactive human takeover';
+            existing.updatedAt = new Date().toISOString();
+            sessions[cleanText(inbound.from)] = existing;
+            await writeJson(SESSIONS, sessions);
+            await audit('conversation.bot_auto_resumed', { phone: inbound.from });
+          }
+        }
         if (existing?.botPaused) {
           const session = await receiveHumanVisibleMessage({ phone: inbound.from, name: inbound.name, text: inbound.text, messageId: inbound.messageId, messageAt: inbound.messageAt, replyToMessageId: inbound.replyToMessageId, source: 'WhatsApp' });
           return send(res, 200, { ok: true, mode: 'human_takeover', session: publicSession(session), delivery: { sent: false, reason: 'Bot paused by operator' } });
