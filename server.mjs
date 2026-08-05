@@ -3299,7 +3299,7 @@ async function saasSelfAudit() {
     operational: {
       storage: DATABASE_URL ? 'persistent_postgres' : process.env.VERCEL ? 'temporary_vercel' : 'local_json',
       whatsappConnected: Boolean(meta.accessToken && meta.phoneNumberId && meta.wabaId),
-      scheduler: 'daily Vercel cron plus 5-minute traffic-assisted cycles',
+      scheduler: 'daily Vercel cron plus 2-minute traffic-assisted cycles',
       queue,
       followups: followupHealth,
       blockers,
@@ -3635,7 +3635,7 @@ async function automationAction(input) {
         history: [{ action: 'queued_after_campaign_approval', at: new Date().toISOString(), actor: input.actor || 'owner' }],
       }));
       jobs.unshift(...children);
-      job.execution = { ok: true, queued: children.length, skippedWithoutConsent: leads.length - eligible.length, cadence: 'one contact every five minutes while scheduler is active' };
+      job.execution = { ok: true, queued: children.length, skippedWithoutConsent: leads.length - eligible.length, cadence: 'one contact every two minutes while scheduler is active' };
       job.status = 'completed';
       job.completedAt = new Date().toISOString();
     } else {
@@ -3760,7 +3760,7 @@ async function runAutomationScanner() {
         imageUrl: '/rp-azadi-offer-2026.png',
         eligibleContacts: eligibleCount,
         totalLeads: leads.length,
-        cadence: 'One approved template message every five minutes',
+        cadence: 'One approved template message every two minutes',
         validUntil: `${campaignYear}-08-31`,
         deliveryMode: 'owner_approval_then_automatic',
         reason: 'Marketing campaign requires owner approval and explicit WhatsApp marketing consent.',
@@ -3795,7 +3795,7 @@ async function runAutomationCycle() {
   return { ok: true, checkedAt: new Date().toISOString(), scan, automaticJobs, followups };
 }
 
-async function runOpportunisticAutomationCycle(intervalMs = 5 * 60 * 1000) {
+async function runOpportunisticAutomationCycle(intervalMs = 2 * 60 * 1000) {
   if (opportunisticCyclePromise) return opportunisticCyclePromise;
   if (Date.now() - lastOpportunisticCycleAt < intervalMs) return { skipped: true, reason: 'cycle_throttled' };
   lastOpportunisticCycleAt = Date.now();
