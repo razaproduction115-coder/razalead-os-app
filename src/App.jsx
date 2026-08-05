@@ -1284,6 +1284,18 @@ function LeadDrawer({ lead, close }) {
                     onChange={(e) => set("dob", e.target.value)}
                   />
                 </div>
+                <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-700 bg-slate-950/40 px-4 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 accent-emerald-500"
+                    checked={Boolean(form.marketingOptIn)}
+                    onChange={(e) => set("marketingOptIn", e.target.checked)}
+                  />
+                  <span>
+                    <b className="block text-sm">WhatsApp marketing consent</b>
+                    <span className="text-xs text-slate-500">Enable only when the client has agreed to receive offers.</span>
+                  </span>
+                </label>
                 <div className="sm:col-span-2">
                   <label className="label">Next delivery</label>
                   <input
@@ -2813,6 +2825,31 @@ function AutomationJob({ job, busy, act }) {
           placeholder="Approved WhatsApp message draft"
         />
       )}
+      {job.output?.imageUrl && (
+        <div className="mt-3 overflow-hidden rounded-xl border border-slate-700 bg-slate-950">
+          <img
+            src={job.output.imageUrl}
+            alt={`${job.featureName} campaign proof`}
+            className="mx-auto block max-h-[34rem] w-auto max-w-full object-contain"
+          />
+        </div>
+      )}
+      {job.output?.eligibleContacts !== undefined && (
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+          <div className="rounded-lg bg-emerald-500/10 p-3 text-emerald-200">
+            <b className="block text-base">{job.output.eligibleContacts}</b>
+            Opted-in contacts
+          </div>
+          <div className="rounded-lg bg-slate-900 p-3 text-slate-300">
+            <b className="block text-base">{job.output.totalLeads || 0}</b>
+            Total CRM leads
+          </div>
+          <div className="rounded-lg bg-slate-900 p-3 text-slate-300">
+            <b className="block text-base">{job.output.cadence || "5 minutes"}</b>
+            Sending gap
+          </div>
+        </div>
+      )}
       {job.output?.preview && (
         <details className="mt-3 rounded-lg bg-slate-900 p-3 text-xs text-slate-400">
           <summary className="cursor-pointer font-bold text-slate-300">
@@ -3233,7 +3270,12 @@ function RestoredToolPage({ mode, notify }) {
                 className="grid gap-2 rounded-xl border border-slate-700 p-3 sm:grid-cols-[1.2fr_1fr_0.8fr_1.2fr_auto]"
               >
                 <b>{x.name || x.phone}</b>
-                <span>{x.service || "General"}</span>
+                <div>
+                  <span>{x.service || "General"}</span>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {x.stage || (x.autoScheduled === false ? "Manual follow-up" : "Automatic follow-up")}
+                  </p>
+                </div>
                 <div>
                   <span className="font-bold">{x.status || "scheduled"}</span>
                   {x.deliveryChannel && (
@@ -3256,7 +3298,7 @@ function RestoredToolPage({ mode, notify }) {
                     </small>
                   )}
                 </span>
-                {!["sent", "processing"].includes(x.status) && (
+                {!['sent', 'processing', 'cancelled', 'failed'].includes(x.status) && (
                   <button
                     className="btn-secondary !min-h-9 px-3 py-2 text-xs"
                     disabled={busy}
