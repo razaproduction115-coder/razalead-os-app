@@ -1650,6 +1650,131 @@ async function approvedWhatsAppTemplates(force = false) {
   return { ok: response.ok, items, error, cached: false };
 }
 
+async function submitIndependenceTemplateToMeta() {
+  const meta = await getMetaConfig();
+  const appId = cleanText(process.env.META_APP_ID || '3635541576598150');
+  if (!meta.accessToken || !meta.wabaId || !appId) {
+    return { ok: false, status: 503, error: 'Meta app, WABA or access token is not configured.' };
+  }
+
+  const templateName = 'independence_day_offer';
+  const fields = 'id,name,status,language,category,components,rejected_reason';
+  const listResponse = await fetch(
+    `https://graph.facebook.com/${meta.graphVersion}/${meta.wabaId}/message_templates?limit=100&fields=${encodeURIComponent(fields)}`,
+    { headers: { Authorization: `Bearer ${meta.accessToken}` } },
+  );
+  const listResult = await listResponse.json().catch(() => ({}));
+  if (!listResponse.ok) {
+    return { ok: false, status: listResponse.status, error: listResult.error?.message || 'Could not check Meta templates.' };
+  }
+  const existing = (listResult.data || []).find(
+    (item) => cleanText(item.name).toLowerCase() === templateName,
+  );
+  if (existing && cleanText(existing.status).toUpperCase() !== 'REJECTED') {
+    return { ok: true, submitted: false, existing: true, template: existing };
+  }
+
+  const imagePath = path.join(__dirname, 'public', 'rp-azadi-offer-2026.png');
+  if (!existsSync(imagePath)) {
+    return { ok: false, status: 500, error: 'Campaign image is missing from the deployment.' };
+  }
+  const image = await readFile(imagePath);
+  const uploadResponse = await fetch(
+    `https://graph.facebook.com/${meta.graphVersion}/${appId}/uploads?file_length=${image.length}&file_type=image%2Fpng`,
+    { method: 'POST', headers: { Authorization: `Bearer ${meta.accessToken}` } },
+  );
+  const uploadResult = await uploadResponse.json().catch(() => ({}));
+  if (!uploadResponse.ok || !uploadResult.id) {
+    return { ok: false, status: uploadResponse.status, error: uploadResult.error?.message || 'Meta image upload session could not be created.' };
+  }
+
+  const handleResponse = await fetch(
+    `https://graph.facebook.com/${meta.graphVersion}/${uploadResult.id}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `OAuth ${meta.accessToken}`,
+        file_offset: '0',
+        'content-type': 'application/octet-stream',
+      },
+      body: image,
+    },
+  );
+  const handleResult = await handleResponse.json().catch(() => ({}));
+  if (!handleResponse.ok || !handleResult.h) {
+    return { ok: false, status: handleResponse.status, error: handleResult.error?.message || 'Campaign image sample could not be uploaded to Meta.' };
+  }
+
+  const payload = {
+    name: templateName,
+    language: 'en_US',
+    category: 'MARKETING',
+    allow_category_change: true,
+    components: [
+      {
+        type: 'HEADER',
+        format: 'IMAGE',
+        example: { header_handle: [handleResult.h] },
+      },
+      {
+        type: 'BODY',
+        text: 'Assalam o Alaikum {{1}}. Azadi Mubarak! Raza Productions ki August Freedom Offer mein creative aur production services par 14% OFF available hai. Booking 31 August 2026 tak confirm karein. Limited slots. Reply AZADI to book.',
+        example: { body_text: [['Muhammad Raza']] },
+      },
+      { type: 'FOOTER', text: 'Raza Productions | Offer valid until 31 August 2026' },
+      {
+        type: 'BUTTONS',
+        buttons: [
+          { type: 'URL', text: 'Book Now', url: 'https://razaproductions.com/booking/' },
+          { type: 'QUICK_REPLY', text: 'Stop offers' },
+        ],
+      },
+    ],
+  };
+  const response = await fetch(
+    `https://graph.facebook.com/${meta.graphVersion}/${meta.wabaId}/message_templates`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${meta.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { ok: false, status: response.status, error: result.error?.message || 'Meta rejected the template submission request.' };
+  }
+
+  approvedTemplateCache = { expiresAt: 0, items: [], error: '' };
+  await saveTemplate({
+    name: templateName,
+    category: 'MARKETING',
+    language: 'en_US',
+    status: cleanText(result.status || 'PENDING').toLowerCase(),
+    body: payload.components.find((item) => item.type === 'BODY')?.text || '',
+    actor: 'owner-meta-submission',
+  });
+  await audit('template.meta_submitted', {
+    actor: 'owner',
+    templateName,
+    metaTemplateId: result.id || '',
+    status: result.status || 'PENDING',
+  });
+  return {
+    ok: true,
+    submitted: true,
+    template: {
+      id: result.id || '',
+      name: templateName,
+      status: result.status || 'PENDING',
+      category: result.category || 'MARKETING',
+      language: 'en_US',
+    },
+  };
+}
+
 function followupTemplateValues(item) {
   return [
     cleanText(item.name || 'Customer'),
@@ -4012,6 +4137,10 @@ export async function appHandler(req, res) {
       if (url.pathname === '/api/templates/meta' && req.method === 'GET') {
         const result = await approvedWhatsAppTemplates(url.searchParams.get('refresh') === '1');
         return send(res, result.ok ? 200 : 503, result);
+      }
+      if (url.pathname === '/api/templates/meta/independence-day' && req.method === 'POST') {
+        const result = await submitIndependenceTemplateToMeta();
+        return send(res, result.ok ? 200 : (result.status || 502), result);
       }
       if (url.pathname === '/api/quick-replies' && req.method === 'GET') return send(res, 200, { items: await getQuickReplies() });
       if (url.pathname === '/api/quick-replies/sync' && req.method === 'POST') return send(res, 200, await syncQuickReplies(await getBody(req)));
