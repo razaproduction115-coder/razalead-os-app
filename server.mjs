@@ -255,6 +255,7 @@ const seedUsers = [
 const seedTemplates = [
   { id: 'welcome', name: 'Welcome', category: 'UTILITY', language: 'en', status: 'draft', body: 'Assalam o Alaikum {{name}}. Raza Productions mein welcome. Aap kis service ke bare mein janna chahte hain?' },
   { id: 'follow_up', name: 'Lead follow-up', category: 'MARKETING', language: 'en', status: 'draft', body: 'Assalam o Alaikum {{name}}. Aapki {{service}} requirement par follow-up kar rahe hain. Kya aap details discuss karna chahenge?' },
+  { id: 'independence_day_offer', name: 'independence_day_offer', category: 'MARKETING', language: 'en', status: 'draft', body: 'Assalam o Alaikum {{1}}. Azadi Mubarak! Raza Productions ki August Freedom Offer mein creative aur production services par 14% OFF available hai. Booking 31 August 2026 tak confirm karein. Limited slots. Reply AZADI to book.' },
 ];
 
 const seedQuickReplies = [
@@ -420,7 +421,19 @@ async function audit(action, details = {}) {
 }
 
 async function getTemplates() {
-  return readJson(TEMPLATES, seedTemplates);
+  const saved = await readJson(TEMPLATES, seedTemplates);
+  const merged = new Map(saved.map((item) => [cleanText(item.id || item.name).toLowerCase(), item]));
+  let changed = false;
+  for (const item of seedTemplates) {
+    const key = cleanText(item.id || item.name).toLowerCase();
+    if (!merged.has(key)) {
+      merged.set(key, item);
+      changed = true;
+    }
+  }
+  const templates = [...merged.values()];
+  if (changed) await writeJson(TEMPLATES, templates);
+  return templates;
 }
 
 async function getQuickReplies() {
@@ -2973,11 +2986,23 @@ function seedAutomationBlueprints() {
   const triggers = {
     proposal: 'Lead qualified', 'content-calendar': 'Manual or monthly', 'review-collector': 'Project completed + 3 days', upsell: 'Client inactive 60 days', 'competitor-alert': 'Daily schedule', 'meeting-scheduler': 'Lead requests meeting', 'contract-invoice': 'Deal marked Won', winback: 'Client inactive 90 days', 'faq-bot': 'Incoming WhatsApp question', 'client-portal': 'Deal marked Won', 'auto-wishes': 'Birthday or configured occasion', 'voice-proposal': 'Manual voice note', 'no-show': 'Meeting missed + 5 minutes', 'task-assigner': 'Deal marked Won', 'ghost-recover': 'Proposal unanswered 48 hours', referral: '5-star review received', 'viral-ideas': 'Manual request', 'smart-portfolio': 'Lead asks for portfolio', 'ceo-report': 'Daily 9:00 AM', 'lost-lead': 'Lead lost + 3 days'
   };
-  return saasFeatures.map((feature) => ({ id: feature.id, name: feature.name, enabled: true, mode: ['proposal','review-collector','upsell','meeting-scheduler','winback','auto-wishes','no-show','ghost-recover','referral','lost-lead'].includes(feature.id) ? 'approval' : 'automatic', trigger: triggers[feature.id] || 'Manual', instructions: feature.description, updatedAt: null }));
+  const approvalFeatures = new Set(['proposal', 'upsell', 'contract-invoice', 'winback', 'ghost-recover', 'referral', 'lost-lead']);
+  return saasFeatures.map((feature) => ({ id: feature.id, name: feature.name, enabled: true, mode: approvalFeatures.has(feature.id) ? 'approval' : 'automatic', trigger: triggers[feature.id] || 'Manual', instructions: feature.description, policyVersion: 2, updatedAt: null }));
 }
 
 async function automationBlueprints(input) {
-  const current = await readJson(AUTOMATION_BLUEPRINTS, seedAutomationBlueprints());
+  let current = await readJson(AUTOMATION_BLUEPRINTS, seedAutomationBlueprints());
+  if (current.some((item) => Number(item.policyVersion || 0) < 2)) {
+    const recommended = new Map(seedAutomationBlueprints().map((item) => [item.id, item]));
+    current = current.map((item) => ({
+      ...item,
+      mode: recommended.get(item.id)?.mode || item.mode,
+      policyVersion: 2,
+      updatedAt: new Date().toISOString(),
+    }));
+    await writeJson(AUTOMATION_BLUEPRINTS, current);
+    await audit('automation.policy_migrated', { actor: 'Raza AI', policyVersion: 2 });
+  }
   if (!input) return current;
   const incoming = Array.isArray(input.items) ? input.items : [];
   const byId = new Map(current.map((item) => [item.id, item]));
@@ -3413,6 +3438,69 @@ function automationPreview(featureId, lead = {}) {
   return { lead: lead.name, service: lead.service };
 }
 
+function independenceCampaignMessage(name = 'Customer') {
+  return `Assalam o Alaikum ${cleanText(name || 'Customer')}. Azadi Mubarak! Raza Productions ki August Freedom Offer mein creative aur production services par 14% OFF available hai. Booking 31 August 2026 tak confirm karein. Limited slots. Reply AZADI to book.`;
+}
+
+function hasMarketingConsent(lead = {}) {
+  const consent = cleanText(lead.marketingConsent || lead.consentStatus || '').toLowerCase();
+  return Boolean(
+    lead.marketingOptIn === true ||
+    lead.whatsappMarketingOptIn === true ||
+    ['opted_in', 'subscribed', 'approved'].includes(consent)
+  ) && !lead.doNotContact && !lead.optedOut;
+}
+
+function karachiDateParts(value = new Date()) {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Karachi',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(value).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]),
+  );
+}
+
+async function resolveIndependenceCampaignTemplate() {
+  const result = await approvedWhatsAppTemplates();
+  if (!result.ok) return { ok: false, error: result.error };
+  const preferredName = cleanText(process.env.WHATSAPP_INDEPENDENCE_TEMPLATE_NAME || 'independence_day_offer').toLowerCase();
+  const template = result.items.find((item) => cleanText(item.name).toLowerCase() === preferredName);
+  return template
+    ? { ok: true, template }
+    : { ok: false, error: `Approve the Meta MARKETING template "${preferredName}" with an image header before launching this campaign.` };
+}
+
+async function sendIndependenceCampaignTemplate(to, name) {
+  const resolved = await resolveIndependenceCampaignTemplate();
+  if (!resolved.ok) return { sent: false, accepted: false, reason: resolved.error, response: {} };
+  const template = resolved.template;
+  const parameterCount = countTemplateBodyParameters(template);
+  const components = [];
+  const hasImageHeader = (template.components || []).some(
+    (component) => cleanText(component.type).toUpperCase() === 'HEADER' && cleanText(component.format).toUpperCase() === 'IMAGE',
+  );
+  if (hasImageHeader) {
+    const baseUrl = cleanText(process.env.APP_URL || 'https://razalead-os-app.vercel.app').replace(/\/$/, '');
+    components.push({ type: 'header', parameters: [{ type: 'image', image: { link: `${baseUrl}/rp-azadi-offer-2026.png` } }] });
+  }
+  if (parameterCount) {
+    components.push({
+      type: 'body',
+      parameters: [cleanText(name || 'Customer')].slice(0, parameterCount).map((text) => ({ type: 'text', text })),
+    });
+  }
+  return sendWhatsAppPayload(to, {
+    type: 'template',
+    template: {
+      name: template.name,
+      language: { code: template.language || 'en' },
+      ...(components.length ? { components } : {}),
+    },
+  });
+}
+
 async function automationSettings(input) {
   const defaults = { approvalRequired: true, scanExistingLeads: true, whatsappEnabled: true, quietHoursStart: 21, quietHoursEnd: 9, updatedAt: null };
   if (!input) return readJson(AUTOMATION_SETTINGS, defaults);
@@ -3427,6 +3515,11 @@ async function executeAutomationJob(job) {
   if (job.channel === 'whatsapp') {
     if (!job.input?.phone) return { ok: false, error: 'Lead phone number missing' };
     if (!job.output?.message) return { ok: false, error: 'Message draft missing' };
+    if (job.featureId === 'independence-campaign-delivery') {
+      const delivery = await sendIndependenceCampaignTemplate(job.input.phone, job.input.name);
+      if (delivery.sent) await recordOutboundMessage({ phone: job.input.phone, text: job.output.message, type: 'template', delivery });
+      return { ok: delivery.sent, delivery, error: delivery.sent ? '' : (delivery.response?.error?.message || delivery.reason || 'Independence campaign delivery failed') };
+    }
     if (job.featureId === 'proposal' && job.output?.downloadUrl) {
       const baseUrl = cleanText(job.input?.baseUrl || process.env.APP_URL || 'https://razalead-os-app.vercel.app').replace(/\/$/, '');
       const documentUrl = job.output.downloadUrl.startsWith('http') ? job.output.downloadUrl : `${baseUrl}${job.output.downloadUrl}`;
@@ -3521,11 +3614,37 @@ async function automationAction(input) {
   if (action === 'reject') job.status = 'rejected';
   else if (action === 'schedule') job.status = 'scheduled';
   else if (action === 'approve') {
-    job.status = 'processing';
-    const execution = await executeAutomationJob(job);
-    job.execution = execution;
-    job.status = execution.ok ? 'completed' : 'failed';
-    job.completedAt = execution.ok ? new Date().toISOString() : null;
+    if (job.featureId === 'independence-campaign') {
+      const leads = await readJson(LEADS, seedLeads);
+      const eligible = leads.filter((lead) => normalizeWhatsAppNumber(lead.phone) && hasMarketingConsent(lead));
+      const existingKeys = new Set(jobs.map((item) => item.automationKey));
+      const children = eligible.filter((lead) => !existingKeys.has(`independence-campaign:${job.input.year}:${lead.id}`)).map((lead) => ({
+        id: randomUUID(),
+        automationKey: `independence-campaign:${job.input.year}:${lead.id}`,
+        parentJobId: job.id,
+        featureId: 'independence-campaign-delivery',
+        featureName: '14 August Independence Campaign',
+        status: 'ready_auto',
+        channel: 'whatsapp',
+        risk: 'approved_marketing_campaign',
+        blueprintMode: 'automatic',
+        input: { leadId: lead.id, name: lead.name, phone: lead.phone, service: lead.service },
+        output: { message: independenceCampaignMessage(lead.name), imageUrl: '/rp-azadi-offer-2026.png', templateName: 'independence_day_offer', deliveryMode: 'automatic_after_campaign_approval' },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        history: [{ action: 'queued_after_campaign_approval', at: new Date().toISOString(), actor: input.actor || 'owner' }],
+      }));
+      jobs.unshift(...children);
+      job.execution = { ok: true, queued: children.length, skippedWithoutConsent: leads.length - eligible.length, cadence: 'one contact every five minutes while scheduler is active' };
+      job.status = 'completed';
+      job.completedAt = new Date().toISOString();
+    } else {
+      job.status = 'processing';
+      const execution = await executeAutomationJob(job);
+      job.execution = execution;
+      job.status = execution.ok ? 'completed' : 'failed';
+      job.completedAt = execution.ok ? new Date().toISOString() : null;
+    }
   } else if (action === 'edit') job.status = 'approval_required';
   else return { ok: false, error: 'Unknown action' };
   job.updatedAt = new Date().toISOString();
@@ -3558,7 +3677,10 @@ async function runScheduledAutomationJobs() {
 
 async function runReadyAutomationJobs(limit = 20) {
   const jobs = await readJson(SAAS_JOBS, []);
-  const ready = jobs.filter((job) => job.status === 'ready_auto').slice(0, Math.max(1, Math.min(50, Number(limit) || 20)));
+  const readyItems = jobs.filter((job) => job.status === 'ready_auto');
+  const campaignReady = readyItems.filter((job) => job.featureId === 'independence-campaign-delivery').slice(0, 1);
+  const regularReady = readyItems.filter((job) => job.featureId !== 'independence-campaign-delivery').slice(0, Math.max(1, Math.min(50, Number(limit) || 20)));
+  const ready = [...regularReady, ...campaignReady];
   const results = [];
   for (const job of ready) {
     job.status = 'processing';
@@ -3615,6 +3737,40 @@ async function runAutomationScanner() {
     const topLead = [...leads].sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
     const report = { id: randomUUID(), automationKey: reportKey, featureId: 'ceo-report', featureName: reportFeature.name, status: 'approval_required', channel: 'internal', risk: 'low', input: {}, output: { leads: leads.length, won: leads.filter((lead) => cleanText(lead.status).toLowerCase() === 'won').length, revenue: leads.filter((lead) => ['won', 'completed'].includes(cleanText(lead.status).toLowerCase())).reduce((sum, lead) => sum + Number(lead.value || 0), 0), topLead: topLead?.name || 'None', dueAt: new Date().toISOString(), deliveryMode: 'owner_approval' }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: [{ action: 'recommended', at: new Date().toISOString(), actor: 'Raza AI' }] };
     jobs.unshift(report); created.push(report);
+  }
+  const campaignDate = karachiDateParts();
+  const campaignYear = Number(campaignDate.year);
+  const campaignMonth = Number(campaignDate.month);
+  const campaignDay = Number(campaignDate.day);
+  const campaignKey = `independence-campaign:${campaignYear}`;
+  if (campaignMonth === 8 && campaignDay <= 14 && !jobs.some((job) => job.automationKey === campaignKey)) {
+    const eligibleCount = leads.filter((lead) => normalizeWhatsAppNumber(lead.phone) && hasMarketingConsent(lead)).length;
+    const campaign = {
+      id: randomUUID(),
+      automationKey: campaignKey,
+      featureId: 'independence-campaign',
+      featureName: '14 August Independence Campaign',
+      status: 'approval_required',
+      channel: 'whatsapp',
+      risk: 'marketing_campaign',
+      blueprintMode: 'approval',
+      input: { year: campaignYear, templateName: 'independence_day_offer' },
+      output: {
+        message: independenceCampaignMessage('Customer'),
+        imageUrl: '/rp-azadi-offer-2026.png',
+        eligibleContacts: eligibleCount,
+        totalLeads: leads.length,
+        cadence: 'One approved template message every five minutes',
+        validUntil: `${campaignYear}-08-31`,
+        deliveryMode: 'owner_approval_then_automatic',
+        reason: 'Marketing campaign requires owner approval and explicit WhatsApp marketing consent.',
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      history: [{ action: 'campaign_proof_ready', at: new Date().toISOString(), actor: 'Raza AI' }],
+    };
+    jobs.unshift(campaign);
+    created.push(campaign);
   }
   const safeAutoFeatures = new Set(['content-calendar', 'competitor-alert', 'faq-bot', 'client-portal', 'task-assigner', 'contract-invoice', 'viral-ideas', 'smart-portfolio', 'ceo-report']);
   for (const job of created.filter(Boolean)) {
@@ -3944,8 +4100,16 @@ export async function appHandler(req, res) {
         const index = leads.findIndex((item) => item.id === decodeURIComponent(leadUpdateMatch[1]));
         if (index < 0) return send(res, 404, { error: 'Lead not found' });
         const input = await getBody(req);
-        const allowed = ['name','email','service','status','value','progress','proposalSentAt','proposalRepliedAt','meetingStatus','meetingAt','reviewRating','reviewVerified','reviewProofUrl','dob','nextDelivery','portalNote'];
-        for (const key of allowed) if (input[key] !== undefined) leads[index][key] = ['value','progress','reviewRating'].includes(key) ? Number(input[key] || 0) : cleanText(input[key]);
+        const allowed = ['name','email','service','status','value','progress','proposalSentAt','proposalRepliedAt','meetingStatus','meetingAt','reviewRating','reviewVerified','reviewProofUrl','dob','nextDelivery','portalNote','marketingOptIn','doNotContact','optedOut'];
+        const booleanFields = new Set(['reviewVerified','marketingOptIn','doNotContact','optedOut']);
+        for (const key of allowed) {
+          if (input[key] === undefined) continue;
+          leads[index][key] = ['value','progress','reviewRating'].includes(key)
+            ? Number(input[key] || 0)
+            : booleanFields.has(key)
+              ? Boolean(input[key])
+              : cleanText(input[key]);
+        }
         leads[index].updatedAt = new Date().toISOString();
         await writeJson(LEADS, leads);
         await audit('lead.updated', { actor: input.actor || 'owner', leadId: leads[index].id });
@@ -4082,4 +4246,4 @@ if (isMainModule && process.argv.includes('--pdf-qa')) {
   });
 }
 
-export { followupPlanForDelay, followupPlanForScore, portalAccessToken, validPortalAccessToken };
+export { followupPlanForDelay, followupPlanForScore, hasMarketingConsent, independenceCampaignMessage, portalAccessToken, validPortalAccessToken };
