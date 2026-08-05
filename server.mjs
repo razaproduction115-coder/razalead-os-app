@@ -3743,7 +3743,23 @@ async function runAutomationScanner() {
   const campaignMonth = Number(campaignDate.month);
   const campaignDay = Number(campaignDate.day);
   const campaignKey = `independence-campaign:${campaignYear}`;
-  if (campaignMonth === 8 && campaignDay <= 14 && !jobs.some((job) => job.automationKey === campaignKey)) {
+  const existingCampaign = jobs.find((job) => job.automationKey === campaignKey);
+  if (campaignMonth === 8 && campaignDay <= 14 && existingCampaign?.status === 'approval_required') {
+    const eligibleCount = leads.filter((lead) => normalizeWhatsAppNumber(lead.phone) && hasMarketingConsent(lead)).length;
+    existingCampaign.input = { ...(existingCampaign.input || {}), year: campaignYear, templateName: 'independence_day_offer' };
+    existingCampaign.output = {
+      ...(existingCampaign.output || {}),
+      message: independenceCampaignMessage('Customer'),
+      imageUrl: '/rp-azadi-offer-2026.png',
+      eligibleContacts: eligibleCount,
+      totalLeads: leads.length,
+      cadence: 'One approved template message every two minutes',
+      validUntil: `${campaignYear}-08-31`,
+      deliveryMode: 'owner_approval_then_automatic',
+      reason: 'Marketing campaign requires owner approval and explicit WhatsApp marketing consent.',
+    };
+    existingCampaign.updatedAt = new Date().toISOString();
+  } else if (campaignMonth === 8 && campaignDay <= 14 && !existingCampaign) {
     const eligibleCount = leads.filter((lead) => normalizeWhatsAppNumber(lead.phone) && hasMarketingConsent(lead)).length;
     const campaign = {
       id: randomUUID(),
