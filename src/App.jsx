@@ -3074,6 +3074,26 @@ function RestoredToolPage({ mode, notify }) {
       setBusy(false);
     }
   };
+  const submitIndependenceTemplate = async () => {
+    setBusy(true);
+    try {
+      const result = await api('/api/templates/meta/independence-day', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      const status = result.template?.status || 'PENDING';
+      notify(
+        result.existing ? 'Meta template already exists' : 'Sent to Meta review',
+        `independence_day_offer status: ${status}. Campaign will remain stopped until Meta marks it APPROVED.`,
+      );
+      await load();
+    } catch (e) {
+      notify('Meta submission failed', e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
   const botSend = async () => {
     if (!message.trim()) return;
     const text = message.trim();
@@ -3405,6 +3425,24 @@ function RestoredToolPage({ mode, notify }) {
             </span>
           )}
         </div>
+        <Card className="mb-5 border-orange-500/40 bg-orange-500/5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="font-bold text-slate-100">August Freedom Offer</h3>
+              <p className="mt-1 text-sm text-slate-400">
+                Submit the approved artwork and 14% offer copy as an official Meta MARKETING template.
+              </p>
+            </div>
+            <button
+              className="btn-primary shrink-0"
+              disabled={busy}
+              onClick={submitIndependenceTemplate}
+            >
+              <Send size={18} />
+              Submit to Meta review
+            </button>
+          </div>
+        </Card>
         <Card>
           <div className="grid gap-3 md:grid-cols-4">
             <input
